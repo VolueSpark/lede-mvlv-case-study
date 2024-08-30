@@ -1,0 +1,17 @@
+polars==1.1.0
+pandas==2.2.2
+pyarrow==17.0.0
+pydantic==2.6.4
+dash-leaflet==1.0.15
+dash==2.17.1
+pandapower==2.14.9
+numpy==1.23.5
+plotly==5.20.0
+python-igraph==0.11.4
+matplotlib==3.8.4
+numba==0.56.4
+geojson==3.1.0
+PyLD==2.0.4
+azure-storage-blob==12.19.0
+python-dotenv==1.0.1
+xlrd==2.0.1

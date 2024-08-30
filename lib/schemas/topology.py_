@@ -1,0 +1,174 @@
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
+from typing_extensions import Self
+from typing import List, Optional
+import polars as pl
+import re
+
+from lib import _log
+
+class TopologyBusException(Exception):
+    def __init__(self, neighborhood_id: str, mrid: str, message: str):
+        self.message = f'[{self.__class__.__name__}] neighborhood_id={neighborhood_id}, mrid={mrid}, message={message}'
+
+
+
+
+
+class Topology(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(alias='neighbourhoodId')
+    ext_grid: List[ConnectivityNode] = Field(alias='slackBus')
+    trafo: List[PowerTransformer] = Field(alias='powerTransformers')
+    bus: List[ConnectivityNode] = Field(alias='connectivityNodes')
+    branch: List[AcLineSegment] = Field(alias='acLineSegments')
+    switch: List[Switch] = Field(alias='switches')
+    load: List[UsagePoint] = Field(alias='usagePoints')
+    conform_load: List[ConnectivityNode] = Field(alias='conformLoads')
+    ghost: List[GhostNodes] = Field(alias='ghostNodes')
+
+    @field_validator('load')
+    @classmethod
+    def validator_meter(cls, v):
+        if isinstance(v, (list)):
+            return [item for item in v if item.meter_id is not None and (re.match(r'^\d{18}$', item.meter_id))]
+        return None
+
+    @model_validator(mode='after')
+    def validate_topology(self) -> Self:
+
+        ext_grid_busses = [ext_grid.bus for ext_grid in self.ext_grid]
+        topology_busses = [bus.bus for bus in self.bus]
+
+        if len(self.load) == 0:
+            raise Exception(f'neighborhood_id={self.id}, exception due to zero loads')
+
+        for bus in self.bus:
+            if bus.bus is None:
+                raise Exception(f'neighborhood_id={self.id}, mrid={bus.bus}, exception due to unresolved bus mrid')
+            if bus.rated_kv == 0:
+                recovered_bus_voltage = self.recover_bus_voltage(bus=bus)
+                if recovered_bus_voltage == 0:
+                    raise Exception(f'neighborhood_id={self.id}, mrid={bus.bus}, exception due to zero base voltage for bus')
+                else:
+                    _log.info(f'Recovered based voltage for bus mrid={bus.bus} with rated_kv={recovered_bus_voltage}')
+                    bus.rated_kv = recovered_bus_voltage
+
+        self.purge_duplicate_busses()
+
+        for load in self.load:
+            if load.bus not in topology_busses:
+                raise Exception(f'neighborhood_id={self.id}, mrid={load.mrid}, exception due to unresolved bus={load.bus}')
+
+        for branch in self.branch:
+            if branch.from_bus not in topology_busses:
+                raise Exception(f'neighborhood_id={self.id}, mrid={branch.mrid}, exception due to unresolved branch from_bus={branch.from_bus}')
+            if branch.to_bus not in topology_busses:
+                raise Exception(f'neighborhood_id={self.id}, mrid={branch.mrid}, exception due to unresolved branch to_bus={branch.to_bus}')
+            if (branch.x < 0) or(branch.x > 0.35):
+                _log.warning(f'neighborhood_id={self.id}, mrid={branch.mrid}, has a poorly conditioned reactance x={branch.x}. Set for standard line type 15-AL1/3-ST1A 0.4')
+                branch.x = 0.35
+            if (branch.r < 0) or (branch.r > 1.8769):
+                _log.warning(f'neighborhood_id={self.id}, mrid={branch.mrid}, has a poorly conditioned resistance r={branch.r}. Set for standard line type 15-AL1/3-ST1A 0.4')
+                branch.r = 1.8769
+
+        for switch in self.switch:
+            if switch.from_bus not in topology_busses:
+                raise Exception(f'neighborhood_id={self.id}, mrid={switch.mrid}, exception due to unresolved switch from_bus={switch.from_bus}')
+            if switch.to_bus not in topology_busses:
+                raise Exception(f'neighborhood_id={self.id}, mrid={switch.mrid}, exception due to unresolved switch to_bus={switch.to_bus}')
+
+        # filter out empty trafo ends. TODO should be fixed with Grid
+        self.trafo = [trafo for trafo in self.trafo if len(trafo.end) > 0]
+
+        for trafo in self.trafo:
+            active_busses = list( set(ext_grid_busses).union(set(topology_busses)) )
+
+            def validate_active_bus(mrid: str) -> bool:
+                return True if mrid in active_busses else False
+
+            # list all trafo end buses and determine if active/inactive
+            trafo_end = pl.from_dicts([end.dict() for end in trafo.end]).with_columns( pl.when(  pl.col('bus')
+                                                                                                 .map_elements(lambda mrid: validate_active_bus(mrid=mrid),
+                                                                                                               return_dtype=pl.Boolean) )
+                                                                                       .then(True)
+                                                                                       .otherwise(False)
+                                                                                       .alias('active')
+                                                                                       )
+            if not trafo_end.filter(pl.col('active') == False).is_empty():
+                trafo.in_service = False
+                for row in trafo_end.filter(pl.col('active') == False).iter_rows(named=True):
+                    self.bus.append(ConnectivityNode(mrid=row['bus'],voltageLevel=row['rated_kv']*1000,in_service=False))
+
+            arg_min = trafo_end['rated_kv'].arg_min()
+            trafo.lv_bus = trafo_end[arg_min]['bus'].item()
+            trafo.vn_lv_kv =  trafo_end[arg_min]['rated_kv'].item()
+
+            arg_max = trafo_end['rated_kv'].arg_max()
+            trafo.hv_bus = trafo_end[arg_max]['bus'].item()
+            trafo.vn_hv_kv =  trafo_end[arg_max]['rated_kv'].item()
+
+            trafo.sn_mva = trafo_end['rated_kva'].max() / 1000.0
+
+            try:
+                assert trafo.lv_bus != trafo.hv_bus, f'neighborhood_id={self.id}, mrid={trafo.mrid}, exception due to unresolved trafo ending bus'
+                assert trafo.vn_hv_kv > trafo.vn_lv_kv, f'neighborhood_id={self.id}, mrid={trafo.mrid}, exception due to unresolved trafo ending voltage'
+                assert trafo.sn_mva > 0, f'neighborhood_id={self.id}, mrid={trafo.mrid}, exception due to unresolved trafo capacity'
+            except AssertionError as e:
+                print(f'Exception raised {e}')
+
+        return self
+
+    def recover_bus_voltage(self, bus: ConnectivityNode):
+        _log.warning(f'neighborhood_id={self.id}, mrid={bus.bus} attempts bus voltage recovery due to poor conditioning rated_kv={bus.rated_kv}')
+
+        def find_next_bus(prev_bus, visited_bus=[], *args):
+            next_bus = []
+            for arg in args:
+                for i in arg:
+                    for p in prev_bus:
+                        if type(i) != PowerTransformer:
+                            if p in [i.to_bus, i.from_bus] and list(set([i.to_bus, i.from_bus])-set(prev_bus))[0] not in visited_bus:
+                                next_bus.append(list(set([i.to_bus, i.from_bus])-set(prev_bus))[0])
+                        else:
+                            for e in i.end:
+                                if p == e.bus:
+                                    next_bus.append(e.bus)
+            return next_bus
+
+        def find_bus_voltage(next_bus, *args):
+            for arg in args:
+                for i in arg:
+                    for n in next_bus:
+                        if type(i) != PowerTransformer:
+                            if n == i.bus and i.rated_kv:
+                                return i.rated_kv
+                        else:
+                            for e in i.end:
+                                if n == e.bus:
+                                    return e.rated_kv
+            return 0
+
+        prev_bus = [bus.bus]
+        visited_bus = []
+        while True:
+            next_bus = find_next_bus(prev_bus, visited_bus, self.branch, self.switch, self.ghost, self.trafo)
+            bus_voltage = find_bus_voltage(next_bus, self.bus, self.trafo)
+
+            if bus_voltage:
+                break
+            _log.exception(f'Could not recover bus voltage from prev_bus={prev_bus} to next_bus={next_bus}. Set prev_bus={next_bus}')
+            
+            visited_bus = prev_bus
+            prev_bus = next_bus
+
+        return bus_voltage
+
+    def purge_duplicate_busses(self):
+        minimal_set = []
+        for bus in self.bus:
+            if bus.bus not in [i.bus for i in minimal_set]:
+                minimal_set.append(bus)
+            else:
+                _log.warning(f'neighborhood_id={self.id} has a duplicate bus entry {bus.bus} which will be purged')
+        self.bus = minimal_set

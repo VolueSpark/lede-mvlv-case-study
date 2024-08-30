@@ -1,0 +1,26 @@
+{
+  "name": "grid_api",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@mapbox/maki": "^8.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "dotenv-webpack": "^8.1.0",
+    "express": "^4.19.2",
+    "maki": "^2.1.0",
+    "mongoose": "^8.5.1",
+    "node-geocoder": "^4.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
