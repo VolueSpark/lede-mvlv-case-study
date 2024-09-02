@@ -1,17 +1,22 @@
-from lib.topology import Topology
 from lib.lfa import Lfa
-import os, json
+import os
 
 PATH = os.path.dirname(os.path.abspath(__file__))
-TOPOLOGY_PATH = os.path.join(PATH, '../data/topology/bronze/topology.json')
-AMI_DATA_PATH = os.path.join(PATH, '../data/ami/silver')
+
+MEDIUM_VOLTAGE_PATH = os.path.join(PATH, '../data/topology/bronze/medium_voltage')
+LOW_VOLTAGE_PATH = os.path.join(PATH, '../data/topology/bronze/low_voltage')
+WORKSPACE_PATH = os.path.join(PATH, 'lfa')
+AMI_DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
 
 if __name__ == "__main__":
 
-        lfa = Lfa(topology_path=TOPOLOGY_PATH,
-                  ami_data_path=AMI_DATA_PATH,
-                  workspace_path=os.path.join(PATH, 'lfa'))
+        lfa = Lfa(
+            medium_voltage_path=MEDIUM_VOLTAGE_PATH,
+            low_voltage_path=LOW_VOLTAGE_PATH,
+            workspace_path=WORKSPACE_PATH,
+            ami_data_path=AMI_DATA_PATH
+        )
 
-        lfa.run()
+        #lfa.run()
 
-        lfa.plot(simple=True)
+        #lfa.plot(simple=True)

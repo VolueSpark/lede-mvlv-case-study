@@ -1,20 +1,22 @@
-from lib.topology import Topology, UsagePoint
 import matplotlib.pyplot as plt
 from datetime import datetime
-from typing import List
+from typing import List, Tuple, Union
 import pandapower as pp
-from lib import _log
 import polars as pl
 import os, json
 
-from lib import _log
+from lib.schemas.topology import Topology
+from lib.schemas.schema import UsagePoint
+from lib import logger
 
 PATH = os.path.dirname(os.path.abspath(__file__))
+
 
 def read_topology_data(topology_path: str):
     with open(os.path.join(topology_path), 'r') as fp:
         data = json.load(fp)
         return Topology(**data)
+
 
 class DataLoader():
     def __init__(self, ami_data_path: str, workspace_path: str, loads: List[UsagePoint]):
@@ -23,7 +25,7 @@ class DataLoader():
         if not os.path.exists(self.data_path):
             for load in loads:
                 if not os.path.exists(os.path.join(ami_data_path, load.meter_id)):
-                    _log.warning(f"Cannot load ami data for meter {load.meter_id}")
+                    logger.warning(f"Cannot load ami data for meter {load.meter_id}")
                 else:
                     df = df.vstack(pl.read_parquet(os.path.join(ami_data_path, load.meter_id)).with_columns(bus=pl.lit(load.bus)))
             (df.with_columns(((pl.col('import_kwh')-pl.col('export_kwh'))/1e3).alias('p_mw'),
@@ -44,33 +46,81 @@ class DataLoader():
 
 class Lfa(DataLoader):
     def __init__(self,
-                 topology_path: str,
+                 medium_voltage_path: str,
+                 low_voltage_path: str,
                  ami_data_path: str,
                  workspace_path: str):
-        topology = read_topology_data(topology_path)
-        super().__init__(ami_data_path, workspace_path, topology.load)
+        self.mv_path = medium_voltage_path
+        self.lv_path = low_voltage_path
+        self.work_path = workspace_path
+        self.data_path = ami_data_path
+        self.net_path = os.path.join(self.work_path, 'net.sqlite')
 
-        self.workspace_path = workspace_path
-        if not os.path.exists(workspace_path):
-            os.makedirs(workspace_path)
+        if not os.path.exists(self.work_path):
+            os.makedirs(self.work_path, exist_ok=True)
+        if not os.path.exists(self.net_path):
+            (mv_topology, lv_topology) = self.validate_topology()
+            self.create_mv_lv_net(
+                mv_topology=mv_topology,
+                lv_topology=lv_topology
+            )
 
-        if not os.path.isfile(os.path.join(self.workspace_path,'net.sqlite')):
 
-            self.net = pp.create_empty_network(name=topology.id)
+    def validate_topology(self) -> Tuple[Topology, List[Topology]]:
+        lv_topology_list = []
+        with open(os.path.join(self.mv_path, os.listdir(self.mv_path)[0]), 'r') as fp:
+            mv_topology = Topology(**json.load(fp))
+
+        lv_slack_tiein = []
+        mv_slack_busses = [trafo.hv_bus for trafo in mv_topology.trafo]
+
+        for index, lv_topology_file in enumerate(os.listdir(self.lv_path)):
+            try:
+                with open(os.path.join(self.lv_path, lv_topology_file), 'r') as fp:
+                    lv_topology = Topology(**json.load(fp))
+                    net = self.create_lv_net(topology=lv_topology)
+                    pp.runpp(net)
+                    mv_topology_trafo = [trafo for trafo in mv_topology.trafo if lv_topology.slack[0].bus == trafo.hv_bus]
+                    assert len(mv_topology_trafo)==1, f'Cannot establish a mv-lv slack tie-in for neighbourhood {lv_topology.uuid}'
+
+                    if lv_topology.slack[0].bus not in mv_slack_busses:
+                        raise Exception(f'Neigborhood {lv_topology.uuid} has no region tie-in and will be discarded. Trafo is'
+                                        f'configured out of service')
+
+                    # put trafo in service as direct MV-LV tie-in can be established
+                    mv_topology_trafo[0].in_service = lv_topology.trafo[0].in_service = True
+                    lv_topology_list.append(lv_topology)
+
+            except Exception as e:
+                logger.exception(f"[{index}] Validation of {lv_topology_file} for single LV LFA failed [{e}]")
+
+        return (mv_topology, lv_topology_list)
+
+
+    def create_mv_lv_net(self, mv_topology: Topology, lv_topology: List[Topology]) -> pp.pandapowerNet:
+        mv_topology = next(iter(mv_topology_iter))
+        for lv_topology in lv_topology_iter:
+            pass
+
+
+    @staticmethod
+    def create_net(topology: Topology) -> pp.pandapowerNet:
+
+            net = pp.create_empty_network(name=topology.uuid)
 
             for bus in topology.bus:
-                pp.create_bus(self.net, name=bus.bus, type='n', vn_kv=bus.rated_kv, in_service=bus.in_service)
+                pp.create_bus(net, name=bus.bus, type='n', vn_kv=bus.rated_kv, in_service=bus.in_service)
 
-            for bus in topology.ext_grid:
-                pp.create_bus(self.net, name=bus.bus, type='n', vn_kv=bus.rated_kv, in_service=bus.in_service)
-                pp.create_ext_grid(self.net, name=bus.bus, vm_pu=1.0, bus=self.net.bus.loc[self.net.bus['name'] == bus.bus].index.item())
+            for bus in topology.slack:
+                pp.create_bus(net, name=bus.bus, type='n', vn_kv=bus.rated_kv, in_service=bus.in_service)
+                pp.create_ext_grid(net, name=bus.bus, vm_pu=1.0, bus=net.bus.loc[net.bus['name'] == bus.bus].index.item())
 
             for trafo in topology.trafo:
 
-                pp.create_transformer_from_parameters(self.net,
+                pp.create_transformer_from_parameters(net,
                                                       name=trafo.mrid,
-                                                      hv_bus=self.net.bus.loc[self.net.bus['name'] == trafo.hv_bus].index.item(),
-                                                      lv_bus=self.net.bus.loc[self.net.bus['name'] == trafo.lv_bus].index.item(),
+                                                      hv_bus=net.bus.loc[net.bus['name'] == trafo.hv_bus].index.item(),
+                                                      lv_bus=net.bus.loc[net.bus['name'] == trafo.lv_bus].index.item(),
                                                       sn_mva=trafo.sn_mva,
                                                       vn_hv_kv=trafo.vn_hv_kv,
                                                       vn_lv_kv=trafo.vn_lv_kv,
@@ -84,10 +134,10 @@ class Lfa(DataLoader):
 
             for branch in topology.branch:
                 if branch.has_impedance:
-                    pp.create_line_from_parameters(self.net,
+                    pp.create_line_from_parameters(net,
                                                    name=branch.mrid,
-                                                   from_bus=self.net.bus.loc[self.net.bus['name'] == branch.from_bus].index.item(),
-                                                   to_bus=self.net.bus.loc[self.net.bus['name'] == branch.to_bus].index.item(),
+                                                   from_bus=net.bus.loc[net.bus['name'] == branch.from_bus].index.item(),
+                                                   to_bus=net.bus.loc[net.bus['name'] == branch.to_bus].index.item(),
                                                    length_km=1,  # TODO Verify number
                                                    r_ohm_per_km=branch.r,
                                                    x_ohm_per_km=branch.x,
@@ -96,54 +146,58 @@ class Lfa(DataLoader):
                                                    in_service=True
                                                    )
                 else:
-                    pp.create_switch(self.net,
+                    pp.create_switch(net,
                                      name=branch.mrid,
-                                     bus=self.net.bus.loc[self.net.bus['name'] == branch.from_bus].index.item(),
-                                     element=self.net.bus.loc[self.net.bus['name'] == branch.to_bus].index.item(),
+                                     bus=net.bus.loc[net.bus['name'] == branch.from_bus].index.item(),
+                                     element=net.bus.loc[net.bus['name'] == branch.to_bus].index.item(),
                                      et='b',
                                      closed=True
                                      )
 
             for switch in topology.switch:
-                pp.create_switch(self.net,
+                pp.create_switch(net,
                                  name=switch.mrid,
-                                 bus=self.net.bus.loc[self.net.bus['name'] == switch.from_bus].index.item(),
-                                 element=self.net.bus.loc[self.net.bus['name'] == switch.to_bus].index.item(),
+                                 bus=net.bus.loc[net.bus['name'] == switch.from_bus].index.item(),
+                                 element=net.bus.loc[net.bus['name'] == switch.to_bus].index.item(),
                                  et='b',
                                  closed=not bool(switch.is_open)
                                  )
 
             for load in topology.load:
-                pp.create_load(self.net,
+                pp.create_load(net,
                                name=load.bus,
-                               bus=self.net.bus.loc[self.net.bus['name'] == load.bus].index.item(),
+                               bus=net.bus.loc[net.bus['name'] == load.bus].index.item(),
                                p_mw=0.0)
 
             for ghost in topology.ghost:
-                pp.create_switch(self.net,
+                pp.create_switch(net,
                                  name=ghost.mrid,
-                                 bus=self.net.bus.loc[self.net.bus['name'] == ghost.from_bus].index.item(),
-                                 element=self.net.bus.loc[self.net.bus['name'] == ghost.to_bus].index.item(),
+                                 bus=net.bus.loc[net.bus['name'] == ghost.from_bus].index.item(),
+                                 element=net.bus.loc[net.bus['name'] == ghost.to_bus].index.item(),
                                  et='b',
                                  closed=False
                                  )
 
-            self.write_net()
-        _log.info(f'Pandapower net for topology id {topology.id} saved to {self.workspace_path}')
+            return net
 
-        if not os.path.isfile(os.path.join(self.workspace_path,'data')):
-            df = pl.DataFrame()
-            for load in topology.load:
-                pl.read_parquet(os.path.join(self.workspace_path,'../../data/ami/bronze/'))
+        #if not os.path.isfile(os.path.join(self.workspace_path,'data')):
+        #    df = pl.DataFrame()
+        #    for load in topology.load:
+        #        pl.read_parquet(os.path.join(self.workspace_path,'../../data/ami/bronze/'))
 
-    def write_net(self):
-        if os.path.exists(os.path.join(self.workspace_path,'net.sqlite')):
-            os.remove(os.path.join(self.workspace_path,'net.sqlite'))
-        pp.to_sqlite(self.net, os.path.join(self.workspace_path,'net.sqlite'))
+    @staticmethod
+    def run_lfa(net: pp.pandapowerNet) -> pp.pandapowerNet:
+        pp.runpp(net)
+        return net
+
+    def write_net(self, net: pp.pandapowerNet):
+        if os.path.exists(os.path.join(self.work_path,'net.sqlite')):
+            os.remove(os.path.join(self.work_path,'net.sqlite'))
+        pp.to_sqlite(net, os.path.join(self.work_path,'net.sqlite'))
 
     def read_net(self) -> pp.pandapowerNet:
-        if os.path.isfile(os.path.join(self.workspace_path,'net.sqlite')):
-            return pp.from_sqlite(os.path.join(self.workspace_path,'net.sqlite'))
+        if os.path.isfile(os.path.join(self.work_path,'net.sqlite')):
+            return pp.from_sqlite(os.path.join(self.work_path,'net.sqlite'))
 
     def set_load(self, load_profile: pl.DataFrame, net: pp.pandapowerNet):
         net.load['p_mw'] = 0
@@ -153,7 +207,7 @@ class Lfa(DataLoader):
                 net.load.loc[net.load['name']==load['bus'], 'p_mw'] = float(load['p_mw'])
                 net.load.loc[net.load['name']==load['bus'], 'q_mvar'] = float(load['q_mvar'])
             else:
-                _log.warning(f"Load at bus {load['bus']} does not exist in grid topology model.")
+                logger.warning(f"Load at bus {load['bus']} does not exist in grid topology model.")
         #return net
 
     def run(self):
@@ -170,7 +224,6 @@ class Lfa(DataLoader):
             fig = plotly.simple_plotly(net=net, figsize=10, aspectratio=(1, 1),line_width=2, bus_size=5, ext_grid_size=20, auto_open=False)
             fig.update_layout(width=int(2000), height=int(1500))
             fig.show()
-            net
         else:
             from pandapower.plotting import simple_plot
             net = self.read_net()
@@ -185,6 +238,8 @@ class Lfa(DataLoader):
                         ext_grid_size=0.5,
                         plot_line_switches=True)
             fig.savefig(os.path.join(self.workspace_path,'plot.png'))
+
+
 
 
 

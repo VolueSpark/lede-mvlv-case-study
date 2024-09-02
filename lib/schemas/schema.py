@@ -104,12 +104,14 @@ class AcLineSegment(BaseModel):
     def validate_x(cls, value):
         if (value < 0) or(value > 0.35):
             return 0
+        return value
 
     @field_validator('r')
     @classmethod
-    def validate_x(cls, value):
+    def validate_r(cls, value):
         if (value < 0) or(value > 1.8769):
             return 0
+        return value
 
 
 #
@@ -197,10 +199,13 @@ class PowerTransformer(BaseModel):
     )
     # assume in service
     in_service: Optional[bool] = Field(
-        default=True
+        default=False
     )
     # optional name
-    name: Optional[str] = Field(alias='name', default='TF_')
+    name: Optional[str] = Field(
+        alias='name',
+        default=f'trafo__{uuid.uuid4().__str__()}'
+    )
 
     @model_validator(mode='after')
     def validate(self) -> Self:
