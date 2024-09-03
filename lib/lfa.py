@@ -45,62 +45,42 @@ class DataLoader():
 
 
 class Lfa(DataLoader):
-    def __init__(self,
-                 medium_voltage_path: str,
-                 low_voltage_path: str,
-                 ami_data_path: str,
-                 workspace_path: str):
-        self.mv_path = medium_voltage_path
-        self.lv_path = low_voltage_path
-        self.work_path = workspace_path
-        self.data_path = ami_data_path
-        self.net_path = os.path.join(self.work_path, 'net.sqlite')
+    def __init__(
+            self,
+            work_path: str,
+            data_path: str,
+            lv_path: str,
+            mv_path: str,
+    ):
+        self.work_path = work_path
+        self.mv_path = mv_path
+        self.lv_path = lv_path
+        self.data_path = data_path
 
-        if not os.path.exists(self.work_path):
-            os.makedirs(self.work_path, exist_ok=True)
-        if not os.path.exists(self.net_path):
-            (mv_topology, lv_topology) = self.validate_topology()
-            self.create_mv_lv_net(
-                mv_topology=mv_topology,
-                lv_topology=lv_topology
-            )
+        self.net = self.read_net()
 
+    def create_region(self, lv_topology_list: List[dict], mv_topology_list: List[dict]) -> pp.pandapowerNet:
 
-    def validate_topology(self) -> Tuple[Topology, List[Topology]]:
-        lv_topology_list = []
-        with open(os.path.join(self.mv_path, os.listdir(self.mv_path)[0]), 'r') as fp:
-            mv_topology = Topology(**json.load(fp))
+        assert len(mv_topology_list) == 1, f'Multiple MV regional layers are not supported'
 
-        lv_slack_tiein = []
-        mv_slack_busses = [trafo.hv_bus for trafo in mv_topology.trafo]
+        net = pp.create_empty_network(name=mv_topology_list[0]['uuid'])
 
-        for index, lv_topology_file in enumerate(os.listdir(self.lv_path)):
-            try:
-                with open(os.path.join(self.lv_path, lv_topology_file), 'r') as fp:
-                    lv_topology = Topology(**json.load(fp))
-                    net = self.create_lv_net(topology=lv_topology)
-                    pp.runpp(net)
-                    mv_topology_trafo = [trafo for trafo in mv_topology.trafo if lv_topology.slack[0].bus == trafo.hv_bus]
-                    assert len(mv_topology_trafo)==1, f'Cannot establish a mv-lv slack tie-in for neighbourhood {lv_topology.uuid}'
+        def pp_bus(bus: str):
+            return net.bus.loc[net.bus['name'] == bus].index.item()
 
-                    if lv_topology.slack[0].bus not in mv_slack_busses:
-                        raise Exception(f'Neigborhood {lv_topology.uuid} has no region tie-in and will be discarded. Trafo is'
-                                        f'configured out of service')
+        # add region bussed for mv and lv topologies
+        for bus in mv_topology_list[0]['bus']:
+            pp.create_bus(net, name=bus['bus'], type='n', vn_kv=bus['rated_kv'], in_service=bus['in_service'])
+        for lv_topology in lv_topology_list:
+            for bus in lv_topology['bus']:
+                pp.create_bus(net, name=bus['bus'], type='n', vn_kv=bus['rated_kv'], in_service=bus['in_service'])
 
-                    # put trafo in service as direct MV-LV tie-in can be established
-                    mv_topology_trafo[0].in_service = lv_topology.trafo[0].in_service = True
-                    lv_topology_list.append(lv_topology)
+        # configure mv slack bus
+        for bus in mv_topology_list[0]['slack']:
+            pp.create_bus(net, name=bus['bus'], type='n', vn_kv=bus['rated_kv'], in_service=bus['in_service'])
+            pp.create_ext_grid(net, name=bus['bus'], vm_pu=1.0, bus=pp_bus(bus=bus['bus']))
 
-            except Exception as e:
-                logger.exception(f"[{index}] Validation of {lv_topology_file} for single LV LFA failed [{e}]")
-
-        return (mv_topology, lv_topology_list)
-
-
-    def create_mv_lv_net(self, mv_topology: Topology, lv_topology: List[Topology]) -> pp.pandapowerNet:
-        mv_topology = next(iter(mv_topology_iter))
-        for lv_topology in lv_topology_iter:
-            pass
+        print('done')
 
 
     @staticmethod
@@ -198,6 +178,21 @@ class Lfa(DataLoader):
     def read_net(self) -> pp.pandapowerNet:
         if os.path.isfile(os.path.join(self.work_path,'net.sqlite')):
             return pp.from_sqlite(os.path.join(self.work_path,'net.sqlite'))
+
+        def read(topology_path: str) -> dict:
+            with open(os.path.join(topology_path), 'r') as fp:
+                return json.load(fp)
+
+        mv_list = os.listdir(self.mv_path)
+        mv_topology_list = [read(topology_path=os.path.join(self.mv_path, mv_name)) for mv_name in mv_list]
+        lv_list = os.listdir(self.lv_path)
+        lv_topologies = [read(topology_path=os.path.join(self.lv_path, lv_name)) for lv_name in lv_list]
+        self.create_region(
+            lv_topology_list=lv_topologies,
+            mv_topology_list=mv_topology_list
+        )
+
+
 
     def set_load(self, load_profile: pl.DataFrame, net: pp.pandapowerNet):
         net.load['p_mw'] = 0

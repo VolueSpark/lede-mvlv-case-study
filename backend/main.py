@@ -3,19 +3,18 @@ import os
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
-MEDIUM_VOLTAGE_PATH = os.path.join(PATH, '../data/topology/bronze/medium_voltage')
-LOW_VOLTAGE_PATH = os.path.join(PATH, '../data/topology/bronze/low_voltage')
-WORKSPACE_PATH = os.path.join(PATH, 'lfa')
-AMI_DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
+WORK_PATH = os.path.join(PATH, 'lfa')
+MV_PATH = os.path.join(PATH, '../data/topology/bronze/mv')
+LV_PATH = os.path.join(PATH, '../data/topology/bronze/lv')
+DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
 
 if __name__ == "__main__":
-
-        lfa = Lfa(
-            medium_voltage_path=MEDIUM_VOLTAGE_PATH,
-            low_voltage_path=LOW_VOLTAGE_PATH,
-            workspace_path=WORKSPACE_PATH,
-            ami_data_path=AMI_DATA_PATH
-        )
+    lfa = Lfa(
+        work_path=WORK_PATH,
+        mv_path=MV_PATH,
+        lv_path=LV_PATH,
+        data_path=DATA_PATH
+    )
 
         #lfa.run()
 

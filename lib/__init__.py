@@ -16,10 +16,15 @@ class bcolors:
     NOTICE = '\033[94m'
     WARNING = '\033[93m'
     EXCEPTION = '\033[91m'
+    GREEN = '\033[32m'      # Green text
+    BLACK = '\033[30m'      # Black text
+    RED = '\033[31m'        # Red text
     ENDC = '\033[0m'
 
 
-class Logging:
+class Logging(bcolors):
+
+
 
     def __init__(self, debug: bool = False, log_path: str = LOG_PATH, name: str='log'):
         self._debug = debug
