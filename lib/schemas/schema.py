@@ -207,6 +207,7 @@ class PowerTransformer(BaseModel):
         default=f'trafo__{uuid.uuid4().__str__()}'
     )
 
+    '''
     @model_validator(mode='after')
     def validate(self) -> Self:
         end = pl.from_dicts([end.dict() for end in self.end])
@@ -226,6 +227,7 @@ class PowerTransformer(BaseModel):
         assert self.sn_mva > 0, f'{self.__class__} mrid={self.mrid} raised exception due to unresolved trafo capacity'
 
         return self
+    '''
 
 
 

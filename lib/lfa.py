@@ -59,6 +59,9 @@ class Lfa(DataLoader):
 
         self.net = self.read_net()
 
+    @staticmethod
+
+
     def create_region(self, lv_topology_list: List[dict], mv_topology_list: List[dict]) -> pp.pandapowerNet:
 
         assert len(mv_topology_list) == 1, f'Multiple MV regional layers are not supported'
@@ -66,7 +69,10 @@ class Lfa(DataLoader):
         net = pp.create_empty_network(name=mv_topology_list[0]['uuid'])
 
         def pp_bus(bus: str):
-            return net.bus.loc[net.bus['name'] == bus].index.item()
+            try:
+                net.bus.loc[net.bus['name'] == bus].index.item()
+            except Exception as e:
+                print(e)
 
         # add region bussed for mv and lv topologies
         for bus in mv_topology_list[0]['bus']:
@@ -86,21 +92,29 @@ class Lfa(DataLoader):
     @staticmethod
     def create_net(topology: Topology) -> pp.pandapowerNet:
 
+            logger.debug(msg=f'Creating net for topology: {topology.uuid}')
+
             net = pp.create_empty_network(name=topology.uuid)
+
+            def pp_bus(bus: str):
+                try:
+                    return net.bus.loc[net.bus['name'] == bus].index.item()
+                except Exception as e:
+                    print(e)
 
             for bus in topology.bus:
                 pp.create_bus(net, name=bus.bus, type='n', vn_kv=bus.rated_kv, in_service=bus.in_service)
 
             for bus in topology.slack:
                 pp.create_bus(net, name=bus.bus, type='n', vn_kv=bus.rated_kv, in_service=bus.in_service)
-                pp.create_ext_grid(net, name=bus.bus, vm_pu=1.0, bus=net.bus.loc[net.bus['name'] == bus.bus].index.item())
+                pp.create_ext_grid(net, name=bus.bus, vm_pu=1.0, bus=pp_bus(bus=bus.bus) )
 
             for trafo in topology.trafo:
 
                 pp.create_transformer_from_parameters(net,
                                                       name=trafo.mrid,
-                                                      hv_bus=net.bus.loc[net.bus['name'] == trafo.hv_bus].index.item(),
-                                                      lv_bus=net.bus.loc[net.bus['name'] == trafo.lv_bus].index.item(),
+                                                      hv_bus=pp_bus(bus=trafo.hv_bus),
+                                                      lv_bus=pp_bus(bus=trafo.lv_bus),
                                                       sn_mva=trafo.sn_mva,
                                                       vn_hv_kv=trafo.vn_hv_kv,
                                                       vn_lv_kv=trafo.vn_lv_kv,
@@ -116,8 +130,8 @@ class Lfa(DataLoader):
                 if branch.has_impedance:
                     pp.create_line_from_parameters(net,
                                                    name=branch.mrid,
-                                                   from_bus=net.bus.loc[net.bus['name'] == branch.from_bus].index.item(),
-                                                   to_bus=net.bus.loc[net.bus['name'] == branch.to_bus].index.item(),
+                                                   from_bus=pp_bus(bus=branch.from_bus),
+                                                   to_bus=pp_bus(bus=branch.to_bus),
                                                    length_km=1,  # TODO Verify number
                                                    r_ohm_per_km=branch.r,
                                                    x_ohm_per_km=branch.x,
@@ -128,8 +142,8 @@ class Lfa(DataLoader):
                 else:
                     pp.create_switch(net,
                                      name=branch.mrid,
-                                     bus=net.bus.loc[net.bus['name'] == branch.from_bus].index.item(),
-                                     element=net.bus.loc[net.bus['name'] == branch.to_bus].index.item(),
+                                     bus=pp_bus(bus=branch.from_bus),
+                                     element=pp_bus(bus=branch.to_bus),
                                      et='b',
                                      closed=True
                                      )
@@ -137,8 +151,8 @@ class Lfa(DataLoader):
             for switch in topology.switch:
                 pp.create_switch(net,
                                  name=switch.mrid,
-                                 bus=net.bus.loc[net.bus['name'] == switch.from_bus].index.item(),
-                                 element=net.bus.loc[net.bus['name'] == switch.to_bus].index.item(),
+                                 bus=pp_bus(bus=switch.from_bus),
+                                 element=pp_bus(bus=switch.to_bus),
                                  et='b',
                                  closed=not bool(switch.is_open)
                                  )
@@ -146,14 +160,14 @@ class Lfa(DataLoader):
             for load in topology.load:
                 pp.create_load(net,
                                name=load.bus,
-                               bus=net.bus.loc[net.bus['name'] == load.bus].index.item(),
+                               bus=pp_bus(bus=load.bus),
                                p_mw=0.0)
 
             for ghost in topology.ghost:
                 pp.create_switch(net,
                                  name=ghost.mrid,
-                                 bus=net.bus.loc[net.bus['name'] == ghost.from_bus].index.item(),
-                                 element=net.bus.loc[net.bus['name'] == ghost.to_bus].index.item(),
+                                 bus=pp_bus(bus=ghost.from_bus) ,
+                                 element=pp_bus(bus=ghost.to_bus),
                                  et='b',
                                  closed=False
                                  )

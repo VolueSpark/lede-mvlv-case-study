@@ -30,7 +30,7 @@ if __name__ == "__main__":
     region_file = os.path.join(RAW_REGION_PATH, region_file_list[0])
     with open(region_file, 'r') as fp:
         region = Topology(**json.load(fp))
-    exit(1)
+
     for index, topology_file in enumerate(topology_file_list):
         with open(os.path.join(RAW_TOPOLOGY_PATH, topology_file), 'r') as fp:
             try:
