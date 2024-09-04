@@ -1,114 +1,47 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, AliasChoices, model_validator
 from typing_extensions import Self
-from typing import List, Optional
+from typing import List, Optional, Tuple, Any
 import polars as pl
+
+from lib.schemas.schema import (
+    PowerTransformer,
+    ConnectivityNode,
+    AcLineSegment,
+    Switch,
+    UsagePoint,
+    GhostNodes
+)
 
 from lib import logger
 
-
-class ConnectivityNode(BaseModel):
-    bus: str
-    rated_kv: float
-    in_service: bool
-
-
-class UsagePoint(BaseModel):
-    bus: str
-    mrid: str
-    meter_id: str
-
-
-class ConformLoad(BaseModel):
-    bus: str
-    mrid: str
-
-
-class AcLineSegment(BaseModel):
-    mrid: str
-    from_bus: str
-    to_bus: str
-    r: float
-    x: float
-    name: str
-
-    # validate for line impedance
-    @property
-    def has_impedance(self):
-        return (self.r > 0) or (self.x > 0)
-
-
-class Switch(BaseModel):
-    mrid: str
-    from_bus: str
-    to_bus: str
-    is_open: bool
-    name: str
-
-
-class PowerTransformerEnd(BaseModel):
-    bus: str
-    rated_kv: float
-    rated_kva: float
-    number: int
-
-
-class PowerTransformer(BaseModel):
-    mrid: str
-    end: List[PowerTransformerEnd]
-    name: str
-    hv_bus: Optional[str] = Field(
-        default=''
-    )
-    lv_bus: Optional[str] = Field(
-        default=''
-    )
-    sn_mva: Optional[float] = Field(
-        default=0.0)
-    vn_hv_kv: Optional[float] = Field(
-        default=0.0
-    )
-    vn_lv_kv: Optional[float] = Field(
-        default=0.0
-    )
-    in_service: Optional[bool] = Field(
-        default=False
-    )
-
-
-class GhostNodes(BaseModel):
-    mrid: str
-    from_bus: str
-    to_bus: str
-
-
 class Topology(BaseModel):
-    uuid: str
-    slack: List[ConnectivityNode]
-    trafo: List[PowerTransformer]
-    bus: List[ConnectivityNode]
-    branch: List[AcLineSegment]
-    switch: List[Switch]
-    conform_load: List[ConnectivityNode]
-    load: List[UsagePoint]
-    ghost: List[GhostNodes]
+    uuid: str = Field(
+        validation_alias=AliasChoices('neighbourhoodId', 'regionId', 'uuid')
+    )
+
+    slack: List[ConnectivityNode] = Field(alias='slackBus')
+    trafo: List[PowerTransformer] = Field(alias='powerTransformers')
+    bus: List[ConnectivityNode] = Field(alias='connectivityNodes')
+    branch: List[AcLineSegment] = Field(alias='acLineSegments')
+    switch: List[Switch] = Field(alias='switches')
+    conform_load: List[ConnectivityNode] = Field(alias='conformLoads')
+    load: Optional[List[UsagePoint]] = Field(alias='usagePoints')
+    ghost: Optional[List[GhostNodes]] = Field(alias='ghostNodes')
 
     @model_validator(mode='after')
     def validate_topology(self) -> Self:
-        #
-        # validation for vanilla topology
-        #
-        try:
-            assert len(self.trafo), f'{self.uuid} has zero trafo entries and will be discarded'
-            assert len(self.bus), f'{self.uuid} has zero bus entries and will be discarded'
-            assert len(self.branch), f'{self.uuid} has zero branch and will be discarded'
-        except AssertionError as e:
-            raise Exception(f'{self.__class__.__name__} raise assertion error. {e}')
+        if len(self.trafo) == 0:
+            raise Exception(f'topology={self.uuid} has zero trafo entries')
+        if len(self.bus) == 0:
+            raise Exception(f'topology={self.uuid} has zero bus entries')
+        if len(self.branch) == 0:
+            raise Exception(f'topology={self.uuid} has zero branch entries')
 
         #forward_result = self.recover_voltage(mrid='7253644b-e40b-53b9-b9ec-d1e8b433dbda', root=True)
         #exit(1)
 
         #
-        # validation on trafo resolving bus tie-ins
+        # trafo boiler plate
         #
         for trafo in self.trafo:
             end = pl.from_dicts([end.dict() for end in trafo.end])
@@ -116,10 +49,10 @@ class Topology(BaseModel):
             if end.filter(pl.col('bus') == self.uuid).is_empty():
                 arg_min = end['rated_kv'].arg_min()
                 trafo.lv_bus = end[arg_min]['bus'].item()
-                trafo.vn_lv_kv = end[arg_min]['rated_kv'].item()
+                trafo.vn_lv_kv =  end[arg_min]['rated_kv'].item()
             else:
                 trafo.lv_bus = end.filter(pl.col('bus') == self.uuid)['bus'].item()
-                trafo.vn_lv_kv = end.filter(pl.col('bus') == self.uuid)['rated_kv'].item()
+                trafo.vn_lv_kv =  end.filter(pl.col('bus') == self.uuid)['rated_kv'].item()
 
             arg_max = end['rated_kv'].arg_max()
             trafo.hv_bus = end[arg_max]['bus'].item()
@@ -127,16 +60,13 @@ class Topology(BaseModel):
 
             trafo.sn_mva = end['rated_kva'].max() / 1000.0
 
-            try:
-                assert trafo.lv_bus != trafo.hv_bus, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending bus'
-                assert trafo.vn_hv_kv > trafo.vn_lv_kv, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending voltage'
-                assert trafo.sn_mva > 0, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo capacity'
-            except AssertionError as e:
-                raise Exception(f'{self.__class__.__name__} raise assertion error. {e}')
+            assert trafo.lv_bus != trafo.hv_bus, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending bus'
+            assert trafo.vn_hv_kv > trafo.vn_lv_kv, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending voltage'
+            assert trafo.sn_mva > 0, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo capacity'
 
-        #
-        # validation of bus voltage values, purging
-        #
+
+
+        # determine unique bus entires and resolve to optimal voltage
         _busses = {}
         for bus in self.bus:
             if bus.bus not in _busses.keys():
@@ -159,9 +89,6 @@ class Topology(BaseModel):
                     self.purge_forward_result(forward_result = forward_result)
 
 
-    #
-    # validation helper functions
-    #
 
     def apply_forward_result(self, forward_result: dict):
         for bus in self.bus:
@@ -236,3 +163,16 @@ class Topology(BaseModel):
 
         logger.info(f'Forward: {mrid} (?) -> Voltage is unrecoverable', color=logger.RED)
         return current_bus
+
+        '''        
+                
+                recovered_bus_voltage = self.recover_bus_voltage(bus=bus)
+                if recovered_bus_voltage == 0:
+                    bus.in_service = False
+                    logger.warning(f'topology={self.uuid} has an unrecoverable bus voltage for mrid={bus.bus}. Bus will be deactivated')
+                else:
+                    bus.rated_kv = recovered_bus_voltage
+                    logger.info(f'topology={self.uuid}, mrid={bus.bus} recover voltage recovery and set to rated_kv={bus.rated_kv}')
+        self.purge_duplicate_busses()
+        '''
+

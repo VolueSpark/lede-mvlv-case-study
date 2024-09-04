@@ -207,27 +207,6 @@ class PowerTransformer(BaseModel):
         default=f'trafo__{uuid.uuid4().__str__()}'
     )
 
-    '''
-    @model_validator(mode='after')
-    def validate(self) -> Self:
-        end = pl.from_dicts([end.dict() for end in self.end])
-
-        arg_min = end['rated_kv'].arg_min()
-        self.lv_bus = end[arg_min]['bus'].item()
-        self.vn_lv_kv =  end[arg_min]['rated_kv'].item()
-
-        arg_max = end['rated_kv'].arg_max()
-        self.hv_bus = end[arg_max]['bus'].item()
-        self.vn_hv_kv =  end[arg_max]['rated_kv'].item()
-
-        self.sn_mva = end['rated_kva'].max() / 1000.0
-
-        assert self.lv_bus != self.hv_bus, f'{self.__class__} mrid={self.mrid} raised exception due to unresolved trafo ending bus'
-        assert self.vn_hv_kv > self.vn_lv_kv, f'{self.__class__} mrid={self.mrid} raised exception due to unresolved trafo ending voltage'
-        assert self.sn_mva > 0, f'{self.__class__} mrid={self.mrid} raised exception due to unresolved trafo capacity'
-
-        return self
-    '''
 
 
 

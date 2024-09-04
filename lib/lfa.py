@@ -5,8 +5,7 @@ import pandapower as pp
 import polars as pl
 import os, json
 
-from lib.schemas.topology import Topology
-from lib.schemas.schema import UsagePoint
+from lib.schemas.topology import Topology, UsagePoint
 from lib import logger
 
 PATH = os.path.dirname(os.path.abspath(__file__))
