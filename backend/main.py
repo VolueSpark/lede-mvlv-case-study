@@ -16,5 +16,6 @@ if __name__ == "__main__":
         data_path=DATA_PATH
     )
 
+    lfa.run()
 
         #lfa.plot(simple=True)
