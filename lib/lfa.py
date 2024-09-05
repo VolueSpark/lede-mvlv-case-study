@@ -121,6 +121,7 @@ def create_load(load: UsagePoint, net: pp.pandapowerNet):
             name=load.meter_id,
             mrid=load.mrid,
             bus=pp_bus(bus=load.bus, net=net),
+            cfl_mrid=load.cfl_mrid,
             p_mw=0.0
         )
     else:
@@ -352,7 +353,11 @@ class Lfa(DataLoader):
 
 
     @decorator_timer
-    def run_lfa(self, from_date: datetime, to_date:datetime):
+    def run_lfa(
+            self,
+            from_date: datetime,
+            to_date: datetime
+    ):
         net = self.read_net()
         t0 = time.time()
         pp.runpp(net)

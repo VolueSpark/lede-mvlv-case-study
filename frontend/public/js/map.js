@@ -29,13 +29,13 @@ function loadGrid() {
         'id': `ac-line-segments`,
         'type': 'line',
         'source': 'geojson_id',
-        'filter': ['==', ['get', '@type'], 'ACLineSegment'],
+        'filter': ['==', ['get', 'objecttype'], 'AcLineSegment'],
         'layout': {
             'line-join': 'round',
             'line-cap': 'round'
         },
         'paint': {
-            'line-color': '#ADD8E6',
+            'line-color': ['get', 'color'],
             'line-width': 1.5
         }
     });
@@ -46,17 +46,17 @@ function loadGrid() {
         'id': `power-transformer`,
         'type': 'symbol',
         'source': 'geojson_id',
-        'filter': ['==', ['get', '@type'], 'PowerTransformer'],
+        'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
         'layout': {
             'icon-image': 'transformer', // Replace with the Maki icon name from Mapbox
             'icon-size': 1, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            'text-field': ['get', 'cim:IdentifiedObject.name'], // Display feature name as label
+            'text-field': ['get', 'id'], // Display feature name as label
             'text-size': 1,
             'text-offset': [0, 1.2] // Offset text below the icon
         },
         "paint": {
-            "icon-color": "#00008B",
+            "icon-color": ['get', 'color'],
             "icon-halo-width": 0
         }
     });
@@ -65,21 +65,19 @@ function loadGrid() {
         'id': `conform-load`,
         'type': 'symbol',
         'source': 'geojson_id',
-        'filter': ['==', ['get', '@type'], 'ConformLoad'],
+        'filter': ['==', ['get', 'objecttype'], 'ConformLoad'],
         'layout': {
             'icon-image': 'home', // Replace with the Maki icon name from Mapbox
             'icon-size': 0.5, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            'text-field': ['get', 'cim:IdentifiedObject.name'], // Display feature name as label
+            'text-field': ['get', 'id'], // Display feature name as label
             'text-size': 1,
             'text-offset': [0, 1.2] // Offset text below the icon
         },
         "paint": {
-            "icon-color": "#1591ea"
+            "icon-color": ['get', 'color']
         }
     });
-
-
 
 }
 

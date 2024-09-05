@@ -16,6 +16,7 @@ class UsagePoint(BaseModel):
     bus: str
     mrid: str
     meter_id: str
+    cfl_mrid: str
 
 
 class ConformLoad(BaseModel):
@@ -88,7 +89,7 @@ class Topology(BaseModel):
     bus: List[ConnectivityNode]
     branch: List[AcLineSegment]
     switch: List[Switch]
-    conform_load: List[ConnectivityNode]
+    conform_load: List[ConformLoad]
     load: List[UsagePoint]
     ghost: List[GhostNodes]
 
@@ -157,6 +158,16 @@ class Topology(BaseModel):
                     self.apply_forward_result(forward_result = forward_result)
                 else:
                     self.purge_forward_result(forward_result = forward_result)
+
+        #
+        # resolve conform load id's for usagepoints
+        #
+        for load in self.load:
+            cfl_mrid = [cfl.mrid for cfl in self.conform_load if cfl.bus == load.bus]
+            if cfl_mrid is not None:
+                load.cfl_mrid = cfl_mrid[0]
+            else:
+                logger.warning(f'Cannot determine the conform load for usage point bus {load.bus}')
 
 
     #

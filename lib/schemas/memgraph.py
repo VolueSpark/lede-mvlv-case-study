@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, AliasChoices, field_validator
 from typing import List, Optional
 import uuid
 
+
 #
 # associated with an AMI
 #
@@ -20,6 +21,12 @@ class UsagePoint(BaseModel):
         default=None
     )
 
+    # conform load that cluster usage points
+    cfl_mrid: Optional[str] = Field(
+        alias='conformLoadId',
+        default=None
+    )
+
 
 #
 # a grouping of one or more Usagepoints
@@ -33,6 +40,8 @@ class ConformLoad(BaseModel):
     mrid: str = Field(
         alias='mrid'
     )
+
+
 
 
 #
@@ -205,6 +214,6 @@ class MemgraphEvent(BaseModel):
     bus: List[ConnectivityNode] = Field(alias='connectivityNodes')
     branch: List[AcLineSegment] = Field(alias='acLineSegments')
     switch: List[Switch] = Field(alias='switches')
-    conform_load: List[ConnectivityNode] = Field(alias='conformLoads')
+    conform_load: List[ConformLoad] = Field(alias='conformLoads')
     load: List[UsagePoint] = Field(alias='usagePoints')
     ghost: List[GhostNodes] = Field(alias='ghostNodes')
