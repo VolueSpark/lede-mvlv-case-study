@@ -1,8 +1,8 @@
 import re, json, shutil, os
-import polars as pl
+
 
 from lib import logger
-from lib.lfa import Lfa
+from lib.lfa import LfaValidation
 from lib.schemas.topology import Topology
 
 PATH = os.path.dirname(__file__)
@@ -53,7 +53,7 @@ if __name__ == "__main__":
                 if lv_topology.trafo[0].mrid not in mv_trafo_list:
                     raise Exception(f'[{index+1}] topology {lv_topology.uuid} trafo mrid is not found in the mv layer')
 
-                Lfa.run_lfa(net=Lfa.create_subnet(lv=lv_topology))
+                LfaValidation(topology=lv_topology)
 
                 lv_trafo = lv_topology.trafo[0]
                 mv_trafo = [mv_trafo for mv_trafo in mv_topology.trafo if mv_trafo.mrid == lv_trafo.mrid ][0]
@@ -73,13 +73,8 @@ if __name__ == "__main__":
     with open(os.path.join(SILVER_MV_PATH, mv_topology.uuid), 'w') as fp:
         json.dump(mv_topology.dict(), fp)
 
-
-    missing_mv_trafos = list(set(lv_trafo_list)^(set(lv_trafo_list).intersection(set(mv_trafo_list))))
-    if bool(missing_mv_trafos):
-        exceptions_log.append(f"The {len(lv_file_list)} lv subnets has {len(lv_trafo_list)} trafo's where {len(set(lv_trafo_list).intersection(set(mv_trafo_list)))} "
-                    f"trafo's are also listed in the mv net. The following trafo mrid's are not accounted for in the mv topology:\n"
-                    f"{missing_mv_trafos}")
-
     with open(os.path.join(SILVER_PATH, 'exceptions.json'), 'w') as fp:
         json.dump(exceptions_log, fp)
+
+    logger.info(f'{len(lv_trafo_list)} of {len(lv_file_list)} LV topologies could be validated via LFA')
 

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Table with Links</title>
+</head>
+<body>
+<h1>Lede Neighborhood List</h1>
+<table border="1">
+    <thead>
+    <tr>
+        {% for key in data[0].keys() %}
+        <th>{{ key.capitalize() }}</th>
+        {% endfor %}
+    </tr>
+    </thead>
+    <tbody>
+    {% for item in data %}
+    <tr>
+        {% for key, value in item.items() %}
+        {% if key == 'neighborhood_id' %}
+        <td><a href="{{ url_for('neighborhood', neighborhood_id=item['neighborhood_id']) }}">{{ value }}</a></td>
+        {% else %}
+        <td>{{ value }}</td>
+        {% endif %}
+        {% endfor %}
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</body>
+</html>

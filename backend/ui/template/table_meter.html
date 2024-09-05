@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Table with Links</title>
+</head>
+<body>
+<h1>Meter list for neighborhood id: {{neighborhood_id}}</h1>
+<table border="1">
+    <thead>
+    <tr>
+        <th>Meter ID</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for meter_id in data %}
+    <tr>
+        <td><a href="{{ url_for('meter', neighborhood_id=neighborhood_id, meter_id=meter_id) }}">{{ meter_id }}</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</body>
+</html>
