@@ -2,8 +2,8 @@ mapboxgl.accessToken =  window.MAPBOX_TOKEN;//'pk.eyJ1IjoicGhpbGxpcG1hcmVlIiwiYS
 const map = new mapboxgl.Map({
     container: 'map',
     style: 'mapbox://styles/mapbox/light-v11',
-    center: [9.655241966247559, 59.15074157714844], // starting position [lng, lat]. Note that lat must be set between -90 and 90
-    zoom: 17 // starting zoom
+    center: [9.665452, 59.146073], // starting position [lng, lat]. Note that lat must be set between -90 and 90
+    zoom: 15 // starting zoom
 });
 
 // Function Declaration
@@ -39,8 +39,6 @@ function loadGrid() {
             'line-width': 1.5
         }
     });
-
-
 
     map.addLayer({
         'id': `power-transformer`,
@@ -82,3 +80,4 @@ function loadGrid() {
 }
 
 map.on('load', loadGrid);
+

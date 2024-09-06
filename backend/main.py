@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta
 from matplotlib import colors
 from lib.lfa import Lfa
@@ -94,11 +95,10 @@ if __name__ == "__main__":
     from_date = datetime(year=2023, month=8, day=28)
     to_date = from_date + timedelta(hours=horizon_hours)
 
-
-
     for (date, lfa_result) in  lfa.run_lfa(from_date=from_date, to_date=to_date):
         front_end_update(
             date=date,
             lfa_result=lfa_result
         )
+        time.sleep(1)
 

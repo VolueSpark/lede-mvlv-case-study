@@ -33,7 +33,6 @@ app.use('/api/v1/lede', require('./routes/health'))
 app.use('/api/v1/lede', require('./routes/update'))
 
 const PORT = process.env.PORT || 3000
-
 app.listen(PORT, ()=>
     console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`)
 );
