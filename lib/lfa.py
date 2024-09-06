@@ -179,6 +179,7 @@ class DataLoader():
         os.makedirs(os.path.join(work_path, 'data'), exist_ok=True)
 
         topology_list = os.listdir(lv_path)
+        metadata = pl.DataFrame()
         for j, topology_j in enumerate(topology_list):
             if not os.path.exists(os.path.join(work_path, 'data', f"{topology_j}.parquet")):
                 with open(os.path.join(lv_path, topology_j), 'r') as fp:
@@ -193,13 +194,29 @@ class DataLoader():
                             logger.warning(f"[meter {i+1} of {len(meter_list)}] {topology_j} has no data for meter {meter_i}")
 
                     if df.shape[0]:
-                        (
-                            df.with_columns(((pl.col('p_kwh_in') - pl.col('p_kwh_out')) / 1e3).alias('p_mw'),
-                                            ((pl.col('q_kvarh_in') - pl.col('q_kvarh_out')) / 1e3).alias('q_mvar'))
+                        df=(
+                            df.with_columns(((pl.col('p_kwh_out') - pl.col('p_kwh_in')) / 1e3).alias('p_mw'),
+                                            ((pl.col('q_kvarh_out') - pl.col('q_kvarh_in')) / 1e3).alias('q_mvar'))
                             .with_columns(((pl.col('p_mw') ** 2 + pl.col('q_mvar') ** 2) ** 0.5).alias('s_mva'))
                             .drop('p_kwh_in', 'p_kwh_out', 'q_kvarh_in', 'q_kvarh_out')
-                            .write_parquet(os.path.join(work_path, 'data', f"{topology_j}.parquet"))
                         )
+
+                        metadata = metadata.vstack(
+                            (
+                                df.group_by('meter_id')
+                                .agg(
+                                    (pl.col('p_mw').min() * 1000).round(1).alias('p_kw_min'),
+                                    (pl.col('p_mw').max() * 1000).round(1).alias('p_kw_max'),
+                                    (pl.col('p_mw').mean() * 1000).round(1).alias('p_kw_mean'),
+                                    (pl.col('q_mvar').min() * 1000).round(1).alias('q_kvar_min'),
+                                    (pl.col('q_mvar').max() * 1000).round(1).alias('q_kvar_max'),
+                                    (pl.col('q_mvar').mean() * 1000).round(1).alias('q_kvar_mean'),
+                                    pl.lit(topology_j).alias('uuid')
+                                ).select('uuid', 'meter_id', 'p_kw_min', 'p_kw_mean', 'p_kw_max', 'q_kvar_min', 'q_kvar_mean', 'q_kvar_max')
+                            )
+                        )
+
+                        df.write_parquet(os.path.join(work_path, 'data', f"{topology_j}.parquet"))
 
                         logger.info(f"[topology {j+1} of {len(topology_list)}] {topology_j} has been processed with {df.n_unique('meter_id')} unique meters")
                     else:
@@ -207,6 +224,8 @@ class DataLoader():
             else:
                 logger.info(f"[topology {j+1} of {len(topology_list)}] {topology_j} has been processed and will be skipped")
 
+        if not metadata.is_empty():
+            metadata.write_parquet(os.path.join(work_path, f"metadata.parquet"))
 
     def load_profile_iter(self, from_date: datetime, to_date: datetime = None):
         if to_date is None:

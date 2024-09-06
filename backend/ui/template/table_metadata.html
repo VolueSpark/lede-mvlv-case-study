@@ -4,7 +4,7 @@
     <title>Table with Links</title>
 </head>
 <body>
-<h1>Lede Neighborhood List</h1>
+<h1>Lede LV Topology List</h1>
 <table border="1">
     <thead>
     <tr>
@@ -17,8 +17,8 @@
     {% for item in data %}
     <tr>
         {% for key, value in item.items() %}
-        {% if key == 'neighborhood_id' %}
-        <td><a href="{{ url_for('neighborhood', neighborhood_id=item['neighborhood_id']) }}">{{ value }}</a></td>
+        {% if key == 'meter_id' %}
+        <td><a href="{{ url_for('uuid', uuid=item['uuid'], meter_id=item['meter_id'] ) }}">{{ value }}</a></td>
         {% else %}
         <td>{{ value }}</td>
         {% endif %}

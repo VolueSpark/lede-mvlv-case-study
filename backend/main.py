@@ -10,6 +10,7 @@ MV_PATH = os.path.join(PATH, '../data/topology/silver/mv')
 LV_PATH = os.path.join(PATH, '../data/topology/silver/lv')
 DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
 
+#707057500042395882
 
 
 if __name__ == "__main__":
@@ -20,6 +21,8 @@ if __name__ == "__main__":
         lv_path=LV_PATH,
         data_path=DATA_PATH
     )
+
+    exit(1)
 
     horizon_hours = 24
     from_date = datetime(year=2023, month=8, day=28)

@@ -24,13 +24,8 @@ def process_batch(**kwargs) -> str:
             .sort(by='value_dt', descending=False)
         ).collect()
 
-        df = (df.
-              with_columns(pl.col('kWhout').diff(),
-                           pl.col('kWhin').diff(),
-                           pl.col('kVArhout').diff(),
-                           pl.col('kVArhin').diff())
-              .drop_nulls())
-
+        # out-> grid to energy consumer (grid consumption / grid export)
+        #  in-> energy consumer to grid (IPP production / grid import)
         df = df.filter(
             pl.col('kWhout') >= 0,
             pl.col('kWhin') >= 0,
