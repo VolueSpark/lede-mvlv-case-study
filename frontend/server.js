@@ -28,7 +28,8 @@ app.get('/config.js', (req, res) => {
 });
 
 // routes
-app.use('/api/v1/grid', require('./routes/grid'))
+app.use('/api/v1/lede', require('./routes/health'))
+app.use('/api/v1/lede', require('./routes/update'))
 
 const PORT = process.env.PORT || 3000
 

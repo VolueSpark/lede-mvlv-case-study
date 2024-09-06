@@ -1,8 +1,8 @@
 const  express =require('express');
-const { getGrid } = require('../controllers/grid')
+const { getHealth } = require('../controllers/health')
 
 const router = express.Router();
 
-router.route('/').get(getGrid);
+router.route('/').get(getHealth);
 
 module.exports =router;
