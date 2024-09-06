@@ -1,6 +1,3 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
 const jsonFilePath = path.join(__dirname, '../public/assets/lede.geojson');

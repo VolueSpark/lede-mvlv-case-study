@@ -1,5 +1,6 @@
 const path = require('path');
 const express = require('express');
+const ws = require('ws')
 const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./config/db');
@@ -33,6 +34,14 @@ app.use('/api/v1/lede', require('./routes/health'))
 app.use('/api/v1/lede', require('./routes/update'))
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, ()=>
+const httpServer = app.listen(PORT, ()=>
     console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`)
 );
+const wsServer = new ws.Server({ noServer: true })
+httpServer.on('upgrade', (req, socket, head) => {
+    wsServer.handleUpgrade(req, socket, head, (ws) => {
+        wsServer.emit('connection', ws, req)
+    })
+})
+
+
