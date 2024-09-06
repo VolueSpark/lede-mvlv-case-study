@@ -16,6 +16,8 @@ BRONZE_LV_PATH = os.path.join(BRONZE_PATH, 'lv')
 SILVER_MV_PATH = os.path.join(SILVER_PATH, 'mv')
 SILVER_LV_PATH = os.path.join(SILVER_PATH, 'lv')
 
+
+
 #
 # Parse spark.grid event files as queried from memgraph and convert base units and aliases for SI units and spark.forecast aliases
 #
