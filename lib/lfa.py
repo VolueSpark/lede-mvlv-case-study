@@ -1,6 +1,6 @@
 from pandapower.plotting import plotly
 from datetime import datetime
-from typing import List, Any
+from typing import List, Any, Tuple
 import pandapower as pp
 import os, json, uuid
 import polars as pl
@@ -174,9 +174,15 @@ class LfaValidation:
 
 
 class DataLoader():
-    def __init__(self,lv_path: str, data_path: str, work_path: str):
+    def __init__(
+            self,
+            lv_path: str,
+            data_path: str,
+            work_path: str
+    ):
 
-        os.makedirs(os.path.join(work_path, 'data'), exist_ok=True)
+        self.data_path = os.path.join(work_path, 'data')
+        os.makedirs(self.data_path, exist_ok=True)
 
         topology_list = os.listdir(lv_path)
         metadata = pl.DataFrame()
@@ -216,13 +222,11 @@ class DataLoader():
                             )
                         )
 
-                        df.write_parquet(os.path.join(work_path, 'data', f"{topology_j}.parquet"))
+                        df.write_parquet(os.path.join(self.data_path, f"{topology_j}.parquet"))
 
                         logger.info(f"[topology {j+1} of {len(topology_list)}] {topology_j} has been processed with {df.n_unique('meter_id')} unique meters")
                     else:
                         logger.exception(f"[topology {j+1} of {len(topology_list)}] {topology_j} has no available data")
-            else:
-                logger.info(f"[topology {j+1} of {len(topology_list)}] {topology_j} has been processed and will be skipped")
 
         if not metadata.is_empty():
             metadata.write_parquet(os.path.join(work_path, f"metadata.parquet"))
@@ -231,9 +235,18 @@ class DataLoader():
         if to_date is None:
             to_date = from_date
 
-        df = pl.read_parquet(self.data_path).filter(pl.col('datetime').is_between(from_date, to_date))
+        data_list = os.listdir(self.data_path)
+        data = pl.DataFrame()
+        for data_file in data_list:
+            data = data.vstack(
+                pl.read_parquet(os.path.join(self.data_path, data_file))
+                .filter(
+                    pl.col('datetime').is_between(from_date, to_date)
+                )
+            )
+
         # pl.read_parquet(self.data_path).group_by('meter_id').agg(peak_s_mva=pl.col('s_mva').max()).sort(by='peak_s_mva', descending=True)
-        for batch in df.partition_by('datetime'):
+        for batch in data.partition_by('datetime'):
             yield batch
 
 
@@ -361,14 +374,35 @@ class Lfa(DataLoader):
             return net
 
     def set_load(self, load_profile: pl.DataFrame, net: pp.pandapowerNet):
-        net.load['p_mw'] = 0
-        net.load['q_mvar'] = 0
-        for load in load_profile.iter_rows(named=True):
-            if load['bus'] in net.load['name'].to_list():
-                net.load.loc[net.load['name'] == load['bus'], 'p_mw'] = float(load['p_mw'])
-                net.load.loc[net.load['name'] == load['bus'], 'q_mvar'] = float(load['q_mvar'])
+        net.load['p_mw'] = 0.0
+        net.load['q_mvar'] = 0.0
+        for i, load in enumerate(load_profile.iter_rows(named=True)):
+            if load['meter_id'] in net.load['name'].to_list():
+                net.load.loc[net.load['name'] == load['meter_id'], 'p_mw'] = load['p_mw']
+                net.load.loc[net.load['name'] == load['meter_id'], 'q_mvar'] = load['q_mvar']
             else:
-                logger.warning(f"Load at bus {load['bus']} does not exist in grid topology model.")
+                logger.warning(f"[{i+1}] Load at bus {load['bus']} does not exist in grid topology model.")
+
+    def parse_result(self, net: pp.pandapowerNet) -> dict:
+
+        branch_data = {
+            'branch_mrid':[mrid.replace('-','') for mrid in net.line['mrid'].to_list()],
+            'loading_percent':net.res_line['loading_percent'].to_list()
+        }
+        conform_load_data ={
+            'cfl_mrid':[cfl_mrid.replace('-','') for cfl_mrid in net.load['mrid'].to_list()],
+            'v_pu': [net.res_bus.iloc[pp_bus_index]['vm_pu'] for pp_bus_index in net.load['bus']]
+        }
+        trafo_data = {
+            'trafo_mrid':[mrid.replace('-','') for mrid in net.trafo['mrid'].to_list()],
+            'loading_percent':net.res_trafo['loading_percent'].to_list()
+        }
+
+        return {
+            'branch': pl.from_dicts(branch_data),
+            'conform_load': pl.from_dicts(conform_load_data),
+            'trafo': pl.from_dicts(trafo_data)
+        }
 
 
     @decorator_timer
@@ -376,17 +410,9 @@ class Lfa(DataLoader):
             self,
             from_date: datetime,
             to_date: datetime
-    ):
+    )->Tuple[datetime, dict]:
         net = self.read_net()
-        t0 = time.time()
-        pp.runpp(net)
-        dt = time.time() - t0
-        logger.notice(f"[{datetime.now().isoformat()}] Profiler:  {round(dt,2)} s")
-        t0 = time.time()
-        pp.runpp(net)
-        dt = time.time() - t0
-        logger.notice(f"[{datetime.now().isoformat()}] Profiler:  {round(dt,2)} s")
-        return
         for load_profile in self.load_profile_iter(from_date=from_date, to_date=to_date):
             self.set_load(load_profile, net)
             pp.runpp(net)
+            yield (load_profile['datetime'][0], self.parse_result(net=net))
