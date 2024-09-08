@@ -2,6 +2,22 @@ const fs = require('fs');
 const path = require('path');
 const jsonFilePath = path.join(__dirname, '../public/assets/lede.geojson');
 
+const WebSocket = require('ws');
+const wss_port = process.env.WEBSOCKET_PORT
+const socket = new WebSocket(`ws://localhost:${wss_port}`);
+
+socket.addEventListener('open', () => {
+    console.log('update.js connected to webSocket server.');
+});
+
+// Function to send messages
+function requestUpdate(timestamp) {
+    const message = 'update';
+    socket.send(message);
+    console.log(`frontend update requested for lfa evaluated at ${timestamp}`)
+
+}
+
 exports.postUpdate = (req, res, next) => {
     const data = req.body; // Get the JSON payload from the request body
     const timestamp = req.query.timestamp;
@@ -44,6 +60,7 @@ exports.postUpdate = (req, res, next) => {
                 return res.status(500).send({ message: 'Error writing file' });
             }
 
+            requestUpdate(timestamp)
             // Send a successful response
             res.status(200).send({
                 message: `Lede frontend received data for LFA result at ${timestamp}`,

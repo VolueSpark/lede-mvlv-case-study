@@ -19,6 +19,7 @@
     "maki": "^2.1.0",
     "mongoose": "^8.5.1",
     "node-geocoder": "^4.3.0",
+    "socket.io": "^4.7.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {
