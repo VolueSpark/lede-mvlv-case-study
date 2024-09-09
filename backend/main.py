@@ -16,7 +16,7 @@ DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
 from lib import logger
 
 
-cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#0000FF", "#00FF00", "#FF0000"])
+cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#00FF00", "#FFFF00", "#FF0000"])
 def get_color_from_value(value):
     #value = random.random()
     rgb_color = cmap(value)[:3]  # Get the RGB part (ignore the alpha channel)
@@ -30,7 +30,7 @@ def front_end_update(date: datetime, lfa_result: dict):
             v_pu_min: float= 0.9,
             v_pu_max: float= 1.1
     ):
-        return get_color_from_value(value=(v_pu - v_pu_min) / (v_pu_max - v_pu_min))
+        return get_color_from_value(value=abs(1 - v_pu) / ((v_pu_max - v_pu_min)/2))
 
     def map_loading_percent_range(
             loading_percent: float,
@@ -38,6 +38,13 @@ def front_end_update(date: datetime, lfa_result: dict):
             loading_percent_max: float=100
     ):
        return get_color_from_value(value=(loading_percent-loading_percent_min)/(loading_percent_max-loading_percent_min))
+
+    def map_loss_percent_range(
+            loss_percent: float,
+            loss_percent_range_min: float=0.0,
+            loss_percent_range_max: float=30
+    ):
+        return get_color_from_value(value=(loss_percent-loss_percent_range_min)/(loss_percent_range_max-loss_percent_range_min))
 
     payload = pl.DataFrame()
     payload = payload.vstack(
@@ -48,7 +55,7 @@ def front_end_update(date: datetime, lfa_result: dict):
         .select('id', 'color')
     )
     payload = payload.vstack(
-        lfa_result['branch'].with_columns(pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_range(loading_percent=loading_percent),
+        lfa_result['branch'].with_columns(pl.col('loss_percent').map_elements(lambda loss_percent: map_loss_percent_range(loss_percent=loss_percent),
                                                                                  return_dtype=pl.Utf8).alias('color'))
         .rename({'branch_mrid':'id'})
         .select('id', 'color')
@@ -91,14 +98,18 @@ if __name__ == "__main__":
         data_path=DATA_PATH
     )
 
-    horizon_hours = 24
-    from_date = datetime(year=2023, month=8, day=28)
+    horizon_hours = 196
+    from_date = datetime(year=2023, month=9, day=1)
     to_date = from_date + timedelta(hours=horizon_hours)
 
-    for (date, lfa_result) in  lfa.run_lfa(from_date=from_date, to_date=to_date):
+    for (date, lfa_result) in  lfa.run_lfa(
+            from_date=from_date,
+            to_date=to_date,
+            step_every=4
+    ):
         front_end_update(
             date=date,
             lfa_result=lfa_result
         )
-        time.sleep(1)
+        #time.sleep(1)
 

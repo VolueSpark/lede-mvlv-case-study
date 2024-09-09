@@ -3,7 +3,7 @@ const map = new mapboxgl.Map({
     container: 'map',
     style: 'mapbox://styles/mapbox/light-v11',
     center: [9.665452, 59.146073], // starting position [lng, lat]. Note that lat must be set between -90 and 90
-    zoom: 15 // starting zoom
+    zoom: 14 // starting zoom
 });
 
 const socket = new WebSocket(`ws://localhost:5100`);

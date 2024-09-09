@@ -231,7 +231,12 @@ class DataLoader():
         if not metadata.is_empty():
             metadata.write_parquet(os.path.join(work_path, f"metadata.parquet"))
 
-    def load_profile_iter(self, from_date: datetime, to_date: datetime = None):
+    def load_profile_iter(
+            self,
+            from_date: datetime,
+            to_date: datetime = None,
+            step_every=1
+    ):
         if to_date is None:
             to_date = from_date
 
@@ -246,8 +251,8 @@ class DataLoader():
             )
 
         # pl.read_parquet(self.data_path).group_by('meter_id').agg(peak_s_mva=pl.col('s_mva').max()).sort(by='peak_s_mva', descending=True)
-        for batch in data.partition_by('datetime'):
-            yield batch
+        for batch in data.sort('datetime', descending=False).group_by_dynamic('datetime', every=f'{step_every}h', period=f'1h'):
+            yield batch[1]
 
 
 class Lfa(DataLoader):
@@ -385,9 +390,19 @@ class Lfa(DataLoader):
 
     def parse_result(self, net: pp.pandapowerNet) -> dict:
 
+        loss_percent = []
+        for i, res_line in net.res_line.iterrows():
+
+            ploss_kw = (net.line.loc[i]['r_ohm_per_km']*net.line.loc[i]['length_km']*res_line['i_ka']**2)
+            vn_kv = max(net.bus.loc[net.line.loc[i]['from_bus']]['vn_kv'], net.bus.loc[net.line.loc[i]['to_bus']]['vn_kv'])
+            p_kw = res_line['i_ka']*vn_kv
+
+            loss_percent.append(round(ploss_kw/p_kw*100 if p_kw else 0,3))
+
         branch_data = {
             'branch_mrid':[mrid.replace('-','') for mrid in net.line['mrid'].to_list()],
-            'loading_percent':net.res_line['loading_percent'].to_list()
+            'loading_percent':net.res_line['loading_percent'].to_list(),
+            'loss_percent': loss_percent
         }
         conform_load_data ={
             'cfl_mrid':[cfl_mrid.replace('-','') for cfl_mrid in net.load['cfl_mrid'].to_list()],
@@ -409,10 +424,15 @@ class Lfa(DataLoader):
     def run_lfa(
             self,
             from_date: datetime,
-            to_date: datetime
+            to_date: datetime,
+            step_every: int = 1,
     )->Tuple[datetime, dict]:
         net = self.read_net()
-        for load_profile in self.load_profile_iter(from_date=from_date, to_date=to_date):
+        for load_profile in self.load_profile_iter(
+                from_date=from_date,
+                to_date=to_date,
+                step_every=step_every
+        ):
             self.set_load(load_profile, net)
             pp.runpp(net)
             yield (load_profile['datetime'][0], self.parse_result(net=net))
