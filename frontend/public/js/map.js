@@ -6,6 +6,7 @@ const map = new mapboxgl.Map({
     zoom: 15 // starting zoom
 });
 
+
 // Function Declaration
 // icons from https://docs.mapbox.com/data/tilesets/reference/mapbox-streets-v8/
 function loadGrid() {
@@ -80,4 +81,6 @@ function loadGrid() {
 }
 
 map.on('load', loadGrid);
+
+
 

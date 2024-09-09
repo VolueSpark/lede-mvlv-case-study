@@ -61,7 +61,6 @@ app.get('/config.js', (req, res) => {
 app.use('/api/v1/lede', require('./routes/health'))
 app.use('/api/v1/lede', require('./routes/update'))
 
-
 app.listen(port, ()=>
     console.log(`Server running in ${mode} mode on port ${port}`)
 );
