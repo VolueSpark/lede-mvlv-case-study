@@ -390,7 +390,7 @@ class Lfa(DataLoader):
             'loading_percent':net.res_line['loading_percent'].to_list()
         }
         conform_load_data ={
-            'cfl_mrid':[cfl_mrid.replace('-','') for cfl_mrid in net.load['mrid'].to_list()],
+            'cfl_mrid':[cfl_mrid.replace('-','') for cfl_mrid in net.load['cfl_mrid'].to_list()],
             'v_pu': [net.res_bus.iloc[pp_bus_index]['vm_pu'] for pp_bus_index in net.load['bus']]
         }
         trafo_data = {

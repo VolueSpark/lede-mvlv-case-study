@@ -1,3 +1,4 @@
+import random
 import time
 from datetime import datetime, timedelta
 from matplotlib import colors
@@ -17,12 +18,12 @@ from lib import logger
 
 cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#0000FF", "#00FF00", "#FF0000"])
 def get_color_from_value(value):
+    #value = random.random()
     rgb_color = cmap(value)[:3]  # Get the RGB part (ignore the alpha channel)
     return colors.rgb2hex(rgb_color)
 
 
 def front_end_update(date: datetime, lfa_result: dict):
-
 
     def map_voltage_range(
             v_pu: float,
@@ -31,7 +32,7 @@ def front_end_update(date: datetime, lfa_result: dict):
     ):
         return get_color_from_value(value=(v_pu - v_pu_min) / (v_pu_max - v_pu_min))
 
-    def map_loading_percent_rage(
+    def map_loading_percent_range(
             loading_percent: float,
             loading_percent_min: float=0.0,
             loading_percent_max: float=100
@@ -47,13 +48,13 @@ def front_end_update(date: datetime, lfa_result: dict):
         .select('id', 'color')
     )
     payload = payload.vstack(
-        lfa_result['branch'].with_columns(pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_rage(loading_percent=loading_percent),
+        lfa_result['branch'].with_columns(pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_range(loading_percent=loading_percent),
                                                                                  return_dtype=pl.Utf8).alias('color'))
         .rename({'branch_mrid':'id'})
         .select('id', 'color')
     )
     payload = payload.vstack(
-        lfa_result['trafo'].with_columns(pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_rage(loading_percent=loading_percent),
+        lfa_result['trafo'].with_columns(pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_range(loading_percent=loading_percent),
                                                                                 return_dtype=pl.Utf8).alias('color'))
         .rename({'trafo_mrid':'id'})
         .select('id', 'color')
@@ -81,7 +82,6 @@ def front_end_update(date: datetime, lfa_result: dict):
         logger.exception(f'[{datetime.utcnow().isoformat()}] Update of Lede API failed for LFA simulation at {date.isoformat()}')
 
 
-
 if __name__ == "__main__":
 
     lfa = Lfa(
@@ -100,6 +100,5 @@ if __name__ == "__main__":
             date=date,
             lfa_result=lfa_result
         )
-        print(lfa_result['trafo'][0])
         time.sleep(1)
 
