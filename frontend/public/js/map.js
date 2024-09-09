@@ -18,8 +18,6 @@ socket.onopen = () =>
 }; // When a message is received from the server
 socket.onmessage = (message) => {
     console.log('map.js received notification')
-    //map.on('load', loadGrid);
-    //loadGrid()
     map.getSource('geojson_id').setData('../assets/lede.geojson');
 };
 
@@ -66,9 +64,6 @@ function loadGrid() {
             'icon-image': 'transformer', // Replace with the Maki icon name from Mapbox
             'icon-size': 1.2, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            //'text-field': ['get', 'id'], // Display feature name as label
-            //'text-size': 1,
-            //'text-offset': [0, 1.2] // Offset text below the icon
         },
         "paint": {
             "icon-color": ['get', 'color'],
@@ -85,9 +80,6 @@ function loadGrid() {
             'icon-image': 'home', // Replace with the Maki icon name from Mapbox
             'icon-size': 0.3, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            //'text-field': ['get', 'id'], // Display feature name as label
-            //'text-size': 1,
-            //'text-offset': [0, 1.2] // Offset text below the icon
         },
         "paint": {
             "icon-color": ['get', 'color']
