@@ -6,6 +6,22 @@ const map = new mapboxgl.Map({
     zoom: 15 // starting zoom
 });
 
+const socket = new WebSocket(`ws://localhost:5100`);
+
+socket.addEventListener('open', () => {
+    console.log('map.js connected to webSocket server.');
+});
+
+socket.onopen = () =>
+{
+    console.log('onopen')
+}; // When a message is received from the server
+socket.onmessage = (message) => {
+    console.log('map.js received notification')
+    //map.on('load', loadGrid);
+    //loadGrid()
+    map.getSource('geojson_id').setData('../assets/lede.geojson');
+};
 
 // Function Declaration
 // icons from https://docs.mapbox.com/data/tilesets/reference/mapbox-streets-v8/

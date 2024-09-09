@@ -1,6 +1,5 @@
 const WebSocket = require('ws');
-const wss_port = process.env.WEBSOCKET_PORT
-const socket = new WebSocket(`ws://localhost:${wss_port}`);
+const socket = new WebSocket(`ws://localhost:5100`);
 
 socket.addEventListener('open', () => {
     console.log('health.js connected to webSocket server.');

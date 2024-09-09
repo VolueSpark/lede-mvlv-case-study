@@ -100,5 +100,6 @@ if __name__ == "__main__":
             date=date,
             lfa_result=lfa_result
         )
+        print(lfa_result['trafo'][0])
         time.sleep(1)
 

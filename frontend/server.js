@@ -9,14 +9,13 @@ const connectDB = require('./config/db');
 dotenv.config({path:'./config/config.env'});
 
 const port = process.env.PORT || 3000
-const wss_port = process.env.WEBSOCKET_PORT
 const mode = process.env.NODE_ENV
 
 // connect to database
 connectDB();
 
 const app = express();
-const wss = new WebSocket.Server({ port: wss_port });
+const wss = new WebSocket.Server({ port: 5100 });
 
 // WebSocket event handling
 wss.on('connection', (ws) => {
@@ -28,6 +27,7 @@ wss.on('connection', (ws) => {
 
         // Broadcast the message to all connected clients
         wss.clients.forEach((client) => {
+            console.log('Send a new message to client')
             if (client.readyState === WebSocket.OPEN) {
                 client.send(message.toString());
             }
@@ -45,8 +45,13 @@ wss.on('connection', (ws) => {
 app.use(express.json({ limit: '50mb' })); // Set the limit according to your needs
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// enable cors
-app.use(cors());
+// Define the CORS options
+const corsOptions = {
+    credentials: true,
+    origin: ['http://localhost:5000', 'ws://localhost:5100'] // Whitelist the domains you want to allow
+};
+
+app.use(cors(corsOptions));
 
 // set static folder
 app.use(express.static(path.join(__dirname, 'public')))

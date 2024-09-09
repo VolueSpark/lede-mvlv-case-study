@@ -3,8 +3,7 @@ const path = require('path');
 const jsonFilePath = path.join(__dirname, '../public/assets/lede.geojson');
 
 const WebSocket = require('ws');
-const wss_port = process.env.WEBSOCKET_PORT
-const socket = new WebSocket(`ws://localhost:${wss_port}`);
+const socket = new WebSocket(`ws://localhost:5100`);
 
 socket.addEventListener('open', () => {
     console.log('update.js connected to webSocket server.');
