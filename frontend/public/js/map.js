@@ -53,7 +53,7 @@ function loadGrid() {
         },
         'paint': {
             'line-color': ['get', 'color'],
-            'line-width': 1.5
+            'line-width': 1
         }
     });
 
@@ -64,11 +64,11 @@ function loadGrid() {
         'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
         'layout': {
             'icon-image': 'transformer', // Replace with the Maki icon name from Mapbox
-            'icon-size': 1, // Adjust icon size if needed
+            'icon-size': 1.2, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            'text-field': ['get', 'id'], // Display feature name as label
-            'text-size': 1,
-            'text-offset': [0, 1.2] // Offset text below the icon
+            //'text-field': ['get', 'id'], // Display feature name as label
+            //'text-size': 1,
+            //'text-offset': [0, 1.2] // Offset text below the icon
         },
         "paint": {
             "icon-color": ['get', 'color'],
@@ -83,11 +83,11 @@ function loadGrid() {
         'filter': ['==', ['get', 'objecttype'], 'ConformLoad'],
         'layout': {
             'icon-image': 'home', // Replace with the Maki icon name from Mapbox
-            'icon-size': 0.5, // Adjust icon size if needed
+            'icon-size': 0.3, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            'text-field': ['get', 'id'], // Display feature name as label
-            'text-size': 1,
-            'text-offset': [0, 1.2] // Offset text below the icon
+            //'text-field': ['get', 'id'], // Display feature name as label
+            //'text-size': 1,
+            //'text-offset': [0, 1.2] // Offset text below the icon
         },
         "paint": {
             "icon-color": ['get', 'color']

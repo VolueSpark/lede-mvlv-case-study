@@ -30,20 +30,23 @@ def front_end_update(date: datetime, lfa_result: dict):
             v_pu_min: float= 0.9,
             v_pu_max: float= 1.1
     ):
+        v_pu = max(min(v_pu, v_pu_max),v_pu_min)
         return get_color_from_value(value=abs(1 - v_pu) / ((v_pu_max - v_pu_min)/2))
 
     def map_loading_percent_range(
             loading_percent: float,
-            loading_percent_min: float=0.0,
-            loading_percent_max: float=100
+            loading_percent_min: float=30,
+            loading_percent_max: float=80
     ):
+       loading_percent = max(min(loading_percent, loading_percent_max),loading_percent_min)
        return get_color_from_value(value=(loading_percent-loading_percent_min)/(loading_percent_max-loading_percent_min))
 
     def map_loss_percent_range(
             loss_percent: float,
             loss_percent_range_min: float=0.0,
-            loss_percent_range_max: float=30
+            loss_percent_range_max: float=20
     ):
+        loss_percent = max(min(loss_percent, loss_percent_range_max),loss_percent_range_min)
         return get_color_from_value(value=(loss_percent-loss_percent_range_min)/(loss_percent_range_max-loss_percent_range_min))
 
     payload = pl.DataFrame()
@@ -98,14 +101,14 @@ if __name__ == "__main__":
         data_path=DATA_PATH
     )
 
-    horizon_hours = 196
+    horizon_hours = 8*3*30
     from_date = datetime(year=2023, month=9, day=1)
     to_date = from_date + timedelta(hours=horizon_hours)
 
     for (date, lfa_result) in  lfa.run_lfa(
             from_date=from_date,
             to_date=to_date,
-            step_every=4
+            step_every=8
     ):
         front_end_update(
             date=date,
