@@ -92,17 +92,9 @@ def front_end_update(date: datetime, lfa_result: dict):
         logger.exception(f'[{datetime.utcnow().isoformat()}] Update of Lede API failed for LFA simulation at {date.isoformat()}')
 
 
-if __name__ == "__main__":
-
-    lfa = Lfa(
-        work_path=WORK_PATH,
-        mv_path=MV_PATH,
-        lv_path=LV_PATH,
-        data_path=DATA_PATH
-    )
-
+def lfa_poc_1(lfa: Lfa):
     horizon_hours = 8*3*30
-    from_date = datetime(year=2023, month=9, day=1)
+    from_date = datetime(year=2024, month=2, day=1)
     to_date = from_date + timedelta(hours=horizon_hours)
 
     for (date, lfa_result) in  lfa.run_lfa(
@@ -114,5 +106,30 @@ if __name__ == "__main__":
             date=date,
             lfa_result=lfa_result
         )
-        #time.sleep(1)
+
+def lfa_poc_2(lfa: Lfa):
+    extremum_points = pl.read_parquet(os.path.join(PATH, 'misc/extremum_points.parquet'))
+    extremum_date_samples = extremum_points['datetime'].to_list()
+    for extremum_date in extremum_date_samples:
+        for (date, lfa_result) in lfa.run_lfa(
+                from_date=extremum_date
+        ):
+            front_end_update(
+                date=date,
+                lfa_result=lfa_result
+            )
+
+
+if __name__ == "__main__":
+
+    lfa = Lfa(
+        work_path=WORK_PATH,
+        mv_path=MV_PATH,
+        lv_path=LV_PATH,
+        data_path=DATA_PATH
+    )
+
+    lfa_poc_2(lfa=lfa)
+
+
 

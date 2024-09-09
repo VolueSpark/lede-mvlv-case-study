@@ -419,14 +419,13 @@ class Lfa(DataLoader):
             'trafo': pl.from_dicts(trafo_data)
         }
 
-
     @decorator_timer
     def run_lfa(
             self,
             from_date: datetime,
-            to_date: datetime,
+            to_date: datetime = None,
             step_every: int = 1,
-    )->Tuple[datetime, dict]:
+    ) -> Tuple[datetime, dict]:
         net = self.read_net()
         for load_profile in self.load_profile_iter(
                 from_date=from_date,
