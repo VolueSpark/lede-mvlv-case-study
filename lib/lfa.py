@@ -262,6 +262,7 @@ class Lfa(DataLoader):
             data_path: str,
             lv_path: str,
             mv_path: str,
+            flex_path: str=None
     ):
         os.makedirs(work_path, exist_ok=True)
         super().__init__(
@@ -274,6 +275,7 @@ class Lfa(DataLoader):
         self.mv_path = mv_path
         self.lv_path = lv_path
         self.net = self.read_net()
+        self.flex = pl.DataFrame() if flex_path is None else pl.read_parquet(flex_path)
 
 
     @decorator_timer
@@ -378,13 +380,25 @@ class Lfa(DataLoader):
             )
             return net
 
-    def set_load(self, load_profile: pl.DataFrame, net: pp.pandapowerNet):
+    def set_load(self, load_profile: pl.DataFrame, net: pp.pandapowerNet, activate_flex: bool = False):
         net.load['p_mw'] = 0.0
         net.load['q_mvar'] = 0.0
         for i, load in enumerate(load_profile.iter_rows(named=True)):
             if load['meter_id'] in net.load['name'].to_list():
-                net.load.loc[net.load['name'] == load['meter_id'], 'p_mw'] = load['p_mw']
-                net.load.loc[net.load['name'] == load['meter_id'], 'q_mvar'] = load['q_mvar']
+                if activate_flex and load['meter_id'] in self.flex['meter_id']:
+
+                    flex_meter = self.flex.filter(pl.col('meter_id')==load['meter_id'])
+                    max_usage_limit_mwh = flex_meter['max_usage_limit_kwh'].item()/1000
+                    max_usage_limit_mvarh = flex_meter['max_usage_limit_kwh'].item()/1000
+
+                    logger.info(f"[{i+1}] Activate flexible load {load['meter_id']} for max usage: "
+                                f"(P,Q)->({round(load['p_mw']*1000,2)},{round(load['q_mvar']*1000,2)})<=({round(max_usage_limit_mwh*1000,2)},{round(max_usage_limit_mvarh*1000,2)})  ")
+                    net.load.loc[net.load['name'] == load['meter_id'], 'p_mw'] = min(load['p_mw'], max_usage_limit_mwh)
+                    net.load.loc[net.load['name'] == load['meter_id'], 'q_mvar'] = min(load['q_mvar'], max_usage_limit_mvarh)
+                else:
+                    net.load.loc[net.load['name'] == load['meter_id'], 'p_mw'] = load['p_mw']
+                    net.load.loc[net.load['name'] == load['meter_id'], 'q_mvar'] = load['q_mvar']
+
             else:
                 logger.warning(f"[{i+1}] Load at bus {load['bus']} does not exist in grid topology model.")
 
@@ -425,6 +439,7 @@ class Lfa(DataLoader):
             from_date: datetime,
             to_date: datetime = None,
             step_every: int = 1,
+            activate_flex: bool = False,
     ) -> Tuple[datetime, dict]:
         net = self.read_net()
         for load_profile in self.load_profile_iter(
@@ -432,6 +447,10 @@ class Lfa(DataLoader):
                 to_date=to_date,
                 step_every=step_every
         ):
-            self.set_load(load_profile, net)
+            self.set_load(
+                load_profile,
+                net,
+                activate_flex=activate_flex
+            )
             pp.runpp(net)
             yield (load_profile['datetime'][0], self.parse_result(net=net))

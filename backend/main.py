@@ -12,6 +12,7 @@ WORK_PATH = os.path.join(PATH, 'lfa')
 MV_PATH = os.path.join(PATH, '../data/topology/silver/mv')
 LV_PATH = os.path.join(PATH, '../data/topology/silver/lv')
 DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
+FLEX_PATH = os.path.join(PATH, 'misc/flex_assets.parquet')
 
 from lib import logger
 
@@ -76,9 +77,6 @@ def front_end_update(date: datetime, lfa_result: dict):
     params = {'timestamp': date.isoformat()}
     data = json.dumps(payload.to_dict(as_series=False))
 
-    with open('data.json', 'w') as f:
-        json.dump(payload.to_dict(as_series=False), f)
-
     response = requests.post(
         url,
         data=data,
@@ -110,14 +108,18 @@ def lfa_poc_1(lfa: Lfa):
 def lfa_poc_2(lfa: Lfa):
     extremum_points = pl.read_parquet(os.path.join(PATH, 'misc/extremum_points.parquet'))
     extremum_date_samples = extremum_points['datetime'].to_list()
+    lfa_results_active_flex = []
+    lfa_results_inactive_flex = []
+
     for extremum_date in extremum_date_samples:
         for (date, lfa_result) in lfa.run_lfa(
-                from_date=extremum_date
+                from_date=extremum_date, activate_flex = True
         ):
-            front_end_update(
-                date=date,
-                lfa_result=lfa_result
-            )
+            lfa_results_active_flex.append({date.isoformat(): lfa_result})
+        for (date, lfa_result) in lfa.run_lfa(
+                from_date=extremum_date, activate_flex = False
+        ):
+            lfa_results_inactive_flex.append({date.isoformat(): lfa_result})
 
 
 if __name__ == "__main__":
@@ -126,7 +128,8 @@ if __name__ == "__main__":
         work_path=WORK_PATH,
         mv_path=MV_PATH,
         lv_path=LV_PATH,
-        data_path=DATA_PATH
+        data_path=DATA_PATH,
+        flex_path=FLEX_PATH
     )
 
     lfa_poc_2(lfa=lfa)

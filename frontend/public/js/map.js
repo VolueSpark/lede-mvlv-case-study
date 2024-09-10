@@ -66,9 +66,13 @@ function loadGrid() {
         'source': 'geojson_id',
         'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
         'layout': {
-            'icon-image': 'transformer', // Replace with the Maki icon name from Mapbox
+            'icon-image': 'substation', // Replace with the Maki icon name from Mapbox
             'icon-size': 1.2, // Adjust icon size if needed
-            'icon-allow-overlap': true, // Allow icons to overlap
+            'icon-allow-overlap': false, // Allow icons to overlap
+            'text-field': ['get', 'name'], // Fetch the text from the 'name' property in the GeoJSON
+            'text-size': 12, // Adjust the text size (values like 2 are too small)
+            'text-offset': [0, 1.2], // Offset the text above the icon
+            'text-anchor': 'top' // Position text above the icon
         },
         "paint": {
             "icon-color": ['get', 'color'],
@@ -85,44 +89,13 @@ function loadGrid() {
             'icon-image': 'home', // Replace with the Maki icon name from Mapbox
             'icon-size': 0.3, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
+            //'text-field': ['get', 'cfl_id'], // Fetch the text from the 'name' property in the GeoJSON
+            'text-size': 12, // Adjust the text size (values like 2 are too small)
+            'text-offset': [0, 1.2], // Offset the text above the icon
+            'text-anchor': 'top', // Position text above the icon
         },
         "paint": {
             "icon-color": ['get', 'color']
-        }
-    });
-
-    // Add a single point with a custom icon at the specified coordinates
-    map.addSource('single-point', {
-        'type': 'geojson', // The source type should be 'geojson', not 'symbol'
-        'data': {
-            'type': 'Feature',
-            'geometry': {
-                'type': 'Point',
-                'coordinates': [9.666961581, 59.134198125] // Your single point coordinates
-            },
-            'properties': {
-                'name': 'MYRET1' // Feature property for the text label
-            }
-        }
-    });
-
-// Add the layer for the single point with both icon and text
-    map.addLayer({
-        'id': 'single-point-layer',
-        'type': 'symbol', // Correctly use 'symbol' in the layer for icons and text
-        'source': 'single-point',
-        'layout': {
-            'icon-image': 'substation', // Replace with your desired icon name (from Mapbox or custom)
-            'icon-size': 1.2, // Adjust icon size as needed
-            'icon-allow-overlap': true, // Allow icons to overlap if necessary
-            'text-field': ['get', 'name'], // Fetch the text from the 'name' property in the GeoJSON
-            'text-size': 12, // Adjust the text size (values like 2 are too small)
-            'text-offset': [0, 1.2], // Offset the text above the icon
-            'text-anchor': 'top' // Position text above the icon
-        },
-        'paint': {
-            'text-color': '#000000', // Customize text color if needed
-            "icon-color": '#000000'
         }
     });
 

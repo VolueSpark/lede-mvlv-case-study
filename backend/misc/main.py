@@ -15,8 +15,11 @@ if __name__ == "__main__":
         pl.read_parquet(METADATA)
         .filter(pl.col('p_kw_max')
                 .is_between(FLEX_ASSET_CAPACITY_MAX_LOW, FLEX_ASSET_CAPACITY_MAX_HIGH))
-        .with_columns(max_usage_limit_kwh=pl.col('p_kw_max') * MAX_USAGE_PERCENT_LIMIT)
-    ).select(['uuid','meter_id','max_usage_limit_kwh']).write_parquet(os.path.join(PATH, 'flex_assets.parquet'))
+        .with_columns(
+            max_usage_limit_kwh=pl.col('p_kw_max') * MAX_USAGE_PERCENT_LIMIT,
+            max_usage_limit_kvarh=pl.col('q_kvar_max') * MAX_USAGE_PERCENT_LIMIT,
+        )
+    ).select(['uuid','meter_id','max_usage_limit_kwh', 'max_usage_limit_kvarh']).write_parquet(os.path.join(PATH, 'flex_assets.parquet'))
 
     extremum_points = (pl.scan_parquet(DATA).sort('datetime', descending=False)
                  .group_by_dynamic('datetime', every='1h')
