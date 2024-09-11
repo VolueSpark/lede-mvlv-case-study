@@ -57,23 +57,28 @@ def front_end_update(date: datetime, lfa_result: dict):
 
     payload = pl.DataFrame()
     payload = payload.vstack(
-        lfa_result['conform_load'].with_columns(pl.col('v_pu').map_elements(lambda v_pu: map_voltage_range(v_pu=v_pu),
-                                                                            return_dtype=pl.Utf8)
-                                                .alias('color'))
+        lfa_result['conform_load'].with_columns(
+            pl.col('v_pu').map_elements(lambda v_pu: map_voltage_range(v_pu=v_pu),return_dtype=pl.Utf8).alias('color'),
+            pl.col('v_pu').map_elements(lambda v_pu: f'{round(v_pu,3)} p.u',return_dtype=pl.Utf8).alias('value'),
+        )
         .rename({'cfl_mrid':'id'})
-        .select('id', 'color')
+        .select('id', 'value','color')
     )
     payload = payload.vstack(
-        lfa_result['branch'].with_columns(pl.col('loss_percent').map_elements(lambda loss_percent: map_loss_percent_range(loss_percent=loss_percent),
-                                                                                 return_dtype=pl.Utf8).alias('color'))
+        lfa_result['branch'].with_columns(
+            pl.col('loss_percent').map_elements(lambda loss_percent: map_loss_percent_range(loss_percent=loss_percent),return_dtype=pl.Utf8).alias('color'),
+            pl.col('loss_percent').map_elements(lambda loss_percent: f'{round(loss_percent,1)} %',return_dtype=pl.Utf8).alias('value'),
+        )
         .rename({'branch_mrid':'id'})
-        .select('id', 'color')
+        .select('id', 'value', 'color')
     )
     payload = payload.vstack(
-        lfa_result['trafo'].with_columns(pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_range(loading_percent=loading_percent),
-                                                                                return_dtype=pl.Utf8).alias('color'))
+        lfa_result['trafo'].with_columns(
+            pl.col('loading_percent').map_elements(lambda loading_percent: map_loading_percent_range(loading_percent=loading_percent),return_dtype=pl.Utf8).alias('color'),
+            pl.col('loading_percent').map_elements(lambda loading_percent: f'{round(loading_percent,1)} %',return_dtype=pl.Utf8).alias('value'),
+        )
         .rename({'trafo_mrid':'id'})
-        .select('id', 'color')
+        .select('id', 'value', 'color')
     )
 
     # Send the JSON via a POST request

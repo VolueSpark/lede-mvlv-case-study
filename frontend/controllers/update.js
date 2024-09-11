@@ -44,11 +44,19 @@ exports.postUpdate = (req, res, next) => {
             idToColorMap[id] = data.color[index];
         });
 
+        const idToValueMap = {};
+        data.id.forEach((id, index) => {
+            idToValueMap[id] = data.value[index];
+        });
+
         // Update the color of each feature based on the id
         geoJsonData.features.forEach(feature => {
             const id = feature.properties.id;
             if (idToColorMap[id]) {
                 feature.properties.color = idToColorMap[id];
+            }
+            if (idToValueMap[id]) {
+                feature.properties.value = idToValueMap[id];
             }
         });
 

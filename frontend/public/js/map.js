@@ -111,7 +111,9 @@ function loadGrid() {
 
         // Copy coordinates array.
         const coordinates = e.features[0].geometry.coordinates.slice();
-        const description = '<strong>Transformer name:</strong> '+e.features[0].properties.name + '<br><strong>Topology ID:</strong> ' + e.features[0].properties.topology_id;
+        const description = '<strong>Transformer name:</strong> '+e.features[0].properties.name
+            + '<br><strong>Topology ID:</strong> ' + e.features[0].properties.topology_id
+            + '<br><strong>Transformer loading:</strong> ' + e.features[0].properties.value;
 
         // Ensure that if the map is zoomed out such that multiple
         // copies of the feature are visible, the popup appears
@@ -133,7 +135,8 @@ function loadGrid() {
 
         // Copy coordinates array.
         const coordinates = e.features[0].geometry.coordinates.slice();
-        const description = '<strong>Conform load mrid:</strong> '+e.features[0].properties.cfl_id;
+        const description = '<strong>Conform load mrid:</strong> '+e.features[0].properties.cfl_id
+            +'<br><strong>Voltage:</strong> ' + e.features[0].properties.value;
 
         // Ensure that if the map is zoomed out such that multiple
         // copies of the feature are visible, the popup appears
