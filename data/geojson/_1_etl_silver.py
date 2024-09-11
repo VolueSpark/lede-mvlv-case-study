@@ -46,7 +46,7 @@ def element_mrid_for_net(net: pp.pandapowerNet) -> dict:
         elif element == 'PowerTransformer':
             element_mrid[element] = { mrid.replace('-',''):{
                 'name':net.trafo.iloc[i]['name'],
-                'topology_id':net.trafo.iloc[i]['topology_id']
+                'uuid':net.trafo.iloc[i]['uuid']
             } for i, mrid in enumerate(net.trafo['mrid'].to_list())}
         elif element == 'AcLineSegment':
             element_mrid[element] = [mrid.replace('-','') for mrid in net.line['mrid'].to_list()]
@@ -70,7 +70,7 @@ def element_mrid_feature(features: dict, element_mrid: dict) -> geojson.FeatureC
                 feature['properties']['color'] = LOW_THRESHOLD_COLOR
                 feature['properties']['value'] = '0.0 %'
                 feature['properties']['name'] = element_mrid['PowerTransformer'][feature['properties']['id']]['name']
-                feature['properties']['topology_id'] = element_mrid['PowerTransformer'][feature['properties']['id']]['topology_id']
+                feature['properties']['uuid'] = element_mrid['PowerTransformer'][feature['properties']['id']]['uuid']
                 feature_collection.append(feature)
             else:
                 logger.exception(f"Feature id {feature['properties']['id']} could not be color mapped")

@@ -19,7 +19,7 @@ if __name__ == "__main__":
             for feature in gj['features']:
                 if feature['type'] == 'Feature' and 'properties' in feature.keys() and 'objecttype' in feature['properties']:
                     if feature['properties']['objecttype'] in FEATURE_LIST:
-                        feature['properties']['color'] = '#00FF00'
+                        feature['properties']['color'] = '#000000'
                         features.append (feature)
 
     gj_new = geojson.FeatureCollection(features)

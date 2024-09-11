@@ -60,6 +60,7 @@ if __name__ == "__main__":
                 lv_trafo = lv_topology.trafo[0]
                 mv_trafo = [mv_trafo for mv_trafo in mv_topology.trafo if mv_trafo.mrid == lv_trafo.mrid ][0]
 
+                mv_trafo.uuid = lv_trafo.uuid
                 lv_trafo.in_service = mv_trafo.in_service = True
                 lv_trafo_list.append({'nbhd_id':lv_topology.uuid, 'trafo_mrid':lv_trafo.mrid})
 

@@ -204,6 +204,8 @@ class PowerTransformer(BaseModel):
         default=f'trafo__{uuid.uuid4().__str__()}'
     )
 
+
+
 class MemgraphEvent(BaseModel):
     uuid: str = Field(
         validation_alias=AliasChoices('neighbourhoodId', 'regionId', 'uuid')

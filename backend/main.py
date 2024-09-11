@@ -137,19 +137,28 @@ class FlexAssets:
         uuid_list = list(set(self.flex_assets['uuid'].to_list())) # all topologies of interest
         uuid_list.append(self.net.name) # add grid tie-in
 
+        self.trafo_meta = (
+                {uuid_i: {
+                    'name': self.net.trafo3w.iloc[i]['name'],
+                    'mrid': self.net.trafo3w.iloc[i]['mrid'].replace('-',''),
+                } for i, uuid_i in enumerate(self.net.trafo3w['uuid']) if uuid_i in uuid_list} |
+                {uuid_i: {
+                    'name': self.net.trafo.iloc[i]['name'],
+                    'mrid': self.net.trafo.iloc[i]['mrid'].replace('-',''),
+                } for i, uuid_i in enumerate(self.net.trafo['uuid']) if uuid_i in uuid_list}
+        )
 
-        self.uuid_trafo_map = {topology_id:self.net.trafo.iloc[i]['name'] for i, topology_id in enumerate(self.net.trafo['topology_id']) if topology_id in uuid_list}
         self.log_uuid = { uuid:[] for uuid in uuid_list}
 
     def log(self,date: datetime, lfa_result: Tuple[datetime, dict], flex_active: bool):
 
         for uuid in self.log_uuid.keys():
-            trafo_mrid = self.net.trafo.loc[self.net.trafo['topology_id']==uuid]['mrid'].item()
-            loading_percent = lfa_result['trafo'].filter(pl.col('trafo_mrid')==trafo_mrid.replace('-',''))['loading_percent'].item()
+
+            loading_percent = lfa_result['trafo'].filter(pl.col('trafo_mrid') == self.trafo_meta[uuid]['mrid'] )['loading_percent'].item()
             self.log_uuid[uuid].append(
                 {
                     'date': date,
-                    'trafo_mrid': trafo_mrid,
+                    'trafo_mrid': self.trafo_meta[uuid]['mrid'],
                     'loading_percent': loading_percent,
                     'flex_active':flex_active
                 }
@@ -175,7 +184,7 @@ class FlexAssets:
                 't': df_.filter(pl.col('flex_active') == True).sort(by='date', descending=False)['date'].to_list(),
                 'y_flex_active': df_.filter(pl.col('flex_active') == True).sort(by='date', descending=False)['loading_percent'].to_list(),
                 'y_flex_inactive': df_.filter(pl.col('flex_active') == False).sort(by='date', descending=False)['loading_percent'].to_list(),
-                'title': f'{self.uuid_trafo_map[uuid]} ({uuid})'
+                'title': f"{self.trafo_meta[uuid]['name']} ({uuid})"
             }
 
         fig, axs = plt.subplots(len(df.columns),1, figsize=(15,10), sharex=True)
@@ -214,11 +223,12 @@ if __name__ == "__main__":
     from_date = datetime(2024, 1, 3, 0, 0)
     to_date = datetime(2024, 1, 7, 0, 0)
 
+    log_path = f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet'
+
     flex = FlexAssets(
         lfa_path=WORK_PATH,
         flex_assets_path=FLEX_ASSETS_PATH
     )
-    #flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
 
     for (date, lfa_result) in lfa.run_lfa(
             from_date=from_date,
@@ -244,14 +254,15 @@ if __name__ == "__main__":
         flex.log(date, lfa_result, flex_active=True)
 
 
-        #front_end_update(
-        #    date=date,
-        #    lfa_result=lfa_result
-        #)
+        front_end_update(
+            date=date,
+            lfa_result=lfa_result
+        )
 
         logger.info(f'[{date.isoformat()}] Lfa processed for active flexible assets')
 
-    flex.save(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
+    flex.save()
+    flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
 
 
 

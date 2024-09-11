@@ -27,12 +27,15 @@ def pp_bus(bus: str, net: pp.pandapowerNet):
     try:
         return net.bus.loc[net.bus['name'] == bus].index.item()
     except Exception as e:
-        raise Exception(f'pp_bus raised exception for multiple entries of bus={bus} detected net')
+        if len(net.bus.loc[net.bus['name'] == bus])==0:
+            # add out-of service bus
+            return create_bus(bus=ConnectivityNode(bus=bus, rated_kv=net.bus['vn_kv'].min(), in_service=False), net=net)
+        raise Exception(f"pp_bus raised exception for unresolved {len(net.bus.loc[net.bus['name'] == bus])} entries of bus={bus} detected net")
 
 
 def create_bus(bus: ConnectivityNode, net: pp.pandapowerNet):
     if bus.bus not in net.bus['name']:
-        pp.create_bus(
+        return pp.create_bus(
             net,
             name=bus.bus,
             type='n',
@@ -58,22 +61,48 @@ def create_ext_grid(bus: ConnectivityNode, net: pp.pandapowerNet):
 
 def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: bool=None):
     if trafo.name not in net.trafo['name']:
-        pp.create_transformer_from_parameters(
-            net,
-            name=trafo.name,
-            mrid=trafo.mrid,
-            topology_id=trafo.lv_bus,
-            hv_bus=pp_bus(bus=trafo.hv_bus, net=net),
-            lv_bus=pp_bus(bus=trafo.lv_bus, net=net),
-            sn_mva=trafo.sn_mva,
-            vn_hv_kv=trafo.vn_hv_kv,
-            vn_lv_kv=trafo.vn_lv_kv,
-            in_service=in_service if in_service is not None else trafo.in_service,
-            vkr_percent=5,  # TODO Verify number
-            vk_percent=10,  # TODO Verify number
-            pfe_kw=2,  # TODO Verify number
-            i0_percent=3  # TODO Verify number
-        )
+        if trafo.is_3w_trafo:
+            pp.create_transformers3w_from_parameters(
+                net,
+                name=trafo.name,
+                mrid=trafo.mrid,
+                uuid=trafo.uuid,
+                hv_buses=[pp_bus(bus=trafo.hv_bus, net=net)],
+                mv_buses=[pp_bus(bus=trafo.mv_bus, net=net)],
+                lv_buses=[pp_bus(bus=trafo.lv_bus, net=net)],
+                vn_hv_kv=trafo.vn_hv_kv,
+                vn_mv_kv=trafo.vn_mv_kv,
+                vn_lv_kv=trafo.vn_lv_kv,
+                sn_hv_mva=trafo.sn_mva, # TODO Verify number
+                sn_mv_mva=trafo.sn_mva, # TODO Verify number
+                sn_lv_mva=trafo.sn_mva, # TODO Verify number
+                vk_hv_percent=10, # TODO Verify number
+                vk_mv_percent=10, # TODO Verify number
+                vk_lv_percent=10, # TODO Verify number
+                vkr_hv_percent=5, # TODO Verify number
+                vkr_mv_percent=5, # TODO Verify number
+                vkr_lv_percent=5, # TODO Verify number
+                pfe_kw=2, # TODO Verify number
+                i0_percent=0.3, # TODO Verify number
+                in_service=in_service if in_service is not None else trafo.in_service,
+            )
+        else:
+            pp.create_transformer_from_parameters(
+                net,
+                name=trafo.name,
+                mrid=trafo.mrid,
+                uuid=trafo.uuid,
+                hv_bus=pp_bus(bus=trafo.hv_bus, net=net),
+                lv_bus=pp_bus(bus=trafo.lv_bus, net=net),
+                vn_hv_kv=trafo.vn_hv_kv,
+                vn_lv_kv=trafo.vn_lv_kv,
+                sn_mva=trafo.sn_mva,
+                vkr_percent=5,  # TODO Verify number
+                vk_percent=10,  # TODO Verify number
+                pfe_kw=2,  # TODO Verify number
+                i0_percent=0.4,  # TODO Verify number
+                in_service=in_service if in_service is not None else trafo.in_service,
+            )
     else:
         raise Exception(f'create_trafo raised exception for multiple trafo entries of trafo={trafo.name} in net')
 
@@ -362,7 +391,6 @@ class Lfa(DataLoader):
 
         net = self.create_net(
             lv=[read(topology_path=os.path.join(self.lv_path, lv_name)) for lv_name in os.listdir(self.lv_path)],
-            #lv=[read(topology_path=os.path.join(self.lv_path, lv_name)) for lv_name in ['aaef8b14-7ba6-5a09-8ee2-4629857ae952']], # TODO remove
             mv=read(topology_path=os.path.join(self.mv_path, os.listdir(self.mv_path)[0]))
         )
 

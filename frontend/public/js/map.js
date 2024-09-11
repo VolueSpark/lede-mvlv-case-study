@@ -112,7 +112,7 @@ function loadGrid() {
         // Copy coordinates array.
         const coordinates = e.features[0].geometry.coordinates.slice();
         const description = '<strong>Transformer name:</strong> '+e.features[0].properties.name
-            + '<br><strong>Topology ID:</strong> ' + e.features[0].properties.topology_id
+            + '<br><strong>Topology ID:</strong> ' + e.features[0].properties.uuid
             + '<br><strong>Transformer loading:</strong> ' + e.features[0].properties.value;
 
         // Ensure that if the map is zoomed out such that multiple

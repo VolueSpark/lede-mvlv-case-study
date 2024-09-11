@@ -5,6 +5,9 @@ import polars as pl
 
 from lib import logger
 
+TRAFO_2W = 2
+TRAFO_3W = 3
+
 
 class ConnectivityNode(BaseModel):
     bus: str
@@ -57,7 +60,13 @@ class PowerTransformer(BaseModel):
     mrid: str
     end: List[PowerTransformerEnd]
     name: str
+    uuid: Optional[str] = Field(
+        default=''
+    )
     hv_bus: Optional[str] = Field(
+        default=''
+    )
+    mv_bus: Optional[str] = Field(
         default=''
     )
     lv_bus: Optional[str] = Field(
@@ -68,12 +77,19 @@ class PowerTransformer(BaseModel):
     vn_hv_kv: Optional[float] = Field(
         default=0.0
     )
+    vn_mv_kv: Optional[float] = Field(
+        default=0.0
+    )
     vn_lv_kv: Optional[float] = Field(
         default=0.0
     )
     in_service: Optional[bool] = Field(
         default=False
     )
+
+    @property
+    def is_3w_trafo(self):
+        return bool(len(self.end) == 3)
 
 
 class GhostNodes(BaseModel):
@@ -105,8 +121,16 @@ class Topology(BaseModel):
         except AssertionError as e:
             raise Exception(f'{self.__class__.__name__} raise assertion error. {e}')
 
-        #forward_result = self.recover_voltage(mrid='7253644b-e40b-53b9-b9ec-d1e8b433dbda', root=True)
-        #exit(1)
+        #
+        # asset that topology has uuid tied in with trafo and grid
+        #
+        trafo_end_busses = []
+        for trafo in self.trafo:
+            for end in trafo.end:
+                trafo_end_busses.append(end.bus)
+        network_busses = [bus.bus for bus in self.bus]
+
+        assert self.uuid in trafo_end_busses and self.uuid in network_busses, f'{self.uuid} has no direct association between trafo and bus'
 
         #
         # validation on trafo resolving bus tie-ins
@@ -114,17 +138,18 @@ class Topology(BaseModel):
         for trafo in self.trafo:
             end = pl.from_dicts([end.dict() for end in trafo.end])
 
-            if end.filter(pl.col('bus') == self.uuid).is_empty():
-                arg_min = end['rated_kv'].arg_min()
-                trafo.lv_bus = end[arg_min]['bus'].item()
-                trafo.vn_lv_kv = end[arg_min]['rated_kv'].item()
-            else:
-                trafo.lv_bus = end.filter(pl.col('bus') == self.uuid)['bus'].item()
-                trafo.vn_lv_kv = end.filter(pl.col('bus') == self.uuid)['rated_kv'].item()
+            arg_min = end['rated_kv'].arg_min()
+            trafo.lv_bus = end[arg_min]['bus'].item()
+            trafo.vn_lv_kv = end[arg_min]['rated_kv'].item()
 
             arg_max = end['rated_kv'].arg_max()
             trafo.hv_bus = end[arg_max]['bus'].item()
             trafo.vn_hv_kv =  end[arg_max]['rated_kv'].item()
+
+            if trafo.is_3w_trafo:
+                mv_element = end.filter(pl.col('bus') != trafo.lv_bus).filter(pl.col('bus') != trafo.hv_bus)
+                trafo.mv_bus = mv_element['bus'].item()
+                trafo.vn_mv_kv =  mv_element['rated_kv'].item()
 
             trafo.sn_mva = end['rated_kva'].max() / 1000.0
 
@@ -132,6 +157,8 @@ class Topology(BaseModel):
                 assert trafo.lv_bus != trafo.hv_bus, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending bus'
                 assert trafo.vn_hv_kv > trafo.vn_lv_kv, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending voltage'
                 assert trafo.sn_mva > 0, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo capacity'
+                if trafo.is_3w_trafo:
+                    assert trafo.vn_hv_kv > trafo.vn_mv_kv > trafo.vn_lv_kv, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending voltage'
             except AssertionError as e:
                 raise Exception(f'{self.__class__.__name__} raise assertion error. {e}')
 
