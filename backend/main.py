@@ -17,10 +17,14 @@ DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
 
 FLEX_ASSETS_PATH = os.path.join(PATH, 'flex')
 
-cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#00FF00", "#FFFF00", "#FF0000"])
+LOW_THRESHOLD_COLOR = "#BFBFBF"
+MED_THRESHOLD_COLOR = "#F7889A"
+HIGH_THRESHOLD_COLOR = "#6D3C44"
+
+cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", [LOW_THRESHOLD_COLOR, MED_THRESHOLD_COLOR, HIGH_THRESHOLD_COLOR])
 def get_color_from_value(value):
     if math.isnan(value):
-        return "#00FF00"
+        return LOW_THRESHOLD_COLOR
     rgb_color = cmap(value)[:3]  # Get the RGB part (ignore the alpha channel)
     return colors.rgb2hex(rgb_color)
 
@@ -209,8 +213,7 @@ if __name__ == "__main__":
         lfa_path=WORK_PATH,
         flex_assets_path=FLEX_ASSETS_PATH
     )
-    flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
-    exit(1)
+    #flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
 
     for (date, lfa_result) in lfa.run_lfa(
             from_date=from_date,
@@ -219,10 +222,10 @@ if __name__ == "__main__":
     ):
         flex.log(date, lfa_result, flex_active=False)
 
-        #front_end_update(
-        #    date=date,
-        #    lfa_result=lfa_result
-        #)
+        front_end_update(
+            date=date,
+            lfa_result=lfa_result
+        )
 
         logger.info(f'[{date.isoformat()}] Lfa processed for inactive flexible assets')
 

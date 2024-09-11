@@ -86,14 +86,8 @@ function loadGrid() {
         'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
         'layout': {
             'icon-image': 'substation', // Replace with the Maki icon name from Mapbox
-            'icon-size': 1.5, // Adjust icon size if needed
+            'icon-size': 1, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            'text-field': [
-                'concat',
-                ['get', 'name'], // Get the 'name' property
-                ' (', // Add a space between the two fields
-                ['get', 'topology_id'], ')' // Get the 'topology_id' property
-            ], // Fetch the text from the 'name' property in the GeoJSON
             'text-size': 14, // Adjust the text size (values like 2 are too small)
             'text-offset': [0, 1.2], // Offset the text above the icon
             'text-anchor': 'top' // Position text above the icon
@@ -102,6 +96,62 @@ function loadGrid() {
             "icon-color": ['get', 'color'],
             "icon-halo-width": 0
         }
+    });
+
+    // Create a popup, but don't add it to the map yet.
+    const popup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        maxWidth: '600px'
+    });
+
+    map.on('mouseenter', 'power-transformer', (e) => {
+        // Change the cursor style as a UI indicator.
+        map.getCanvas().style.cursor = 'pointer';
+
+        // Copy coordinates array.
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        const description = '<strong>Transformer name:</strong> '+e.features[0].properties.name + '<br><strong>Topology ID:</strong> ' + e.features[0].properties.topology_id;
+
+        // Ensure that if the map is zoomed out such that multiple
+        // copies of the feature are visible, the popup appears
+        // over the copy being pointed to.
+        if (['mercator', 'equirectangular'].includes(map.getProjection().name)) {
+            while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+            }
+        }
+
+        // Populate the popup and set its coordinates
+        // based on the feature found.
+        popup.setLngLat(coordinates).setHTML(description).addTo(map);
+    });
+
+    map.on('mouseenter', 'conform-load', (e) => {
+        // Change the cursor style as a UI indicator.
+        map.getCanvas().style.cursor = 'pointer';
+
+        // Copy coordinates array.
+        const coordinates = e.features[0].geometry.coordinates.slice();
+        const description = '<strong>Conform load mrid:</strong> '+e.features[0].properties.cfl_id;
+
+        // Ensure that if the map is zoomed out such that multiple
+        // copies of the feature are visible, the popup appears
+        // over the copy being pointed to.
+        if (['mercator', 'equirectangular'].includes(map.getProjection().name)) {
+            while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+                coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+            }
+        }
+
+        // Populate the popup and set its coordinates
+        // based on the feature found.
+        popup.setLngLat(coordinates).setHTML(description).addTo(map);
+    });
+
+    map.on('mouseleave', 'conform-load', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
     });
 
 }

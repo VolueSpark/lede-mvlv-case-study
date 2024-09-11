@@ -18,7 +18,11 @@ SILVER_PATH = os.path.join(PATH, 'silver')
 
 FRONTEND_PATH = os.path.join(PATH, '../../frontend/public/assets')
 
-cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#00FF00", "#FFFF00", "#FF0000"])
+LOW_THRESHOLD_COLOR = "#BFBFBF"
+MED_THRESHOLD_COLOR = "#F7889A"
+HIGH_THRESHOLD_COLOR = "#6D3C44"
+
+cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", [LOW_THRESHOLD_COLOR, MED_THRESHOLD_COLOR, HIGH_THRESHOLD_COLOR])
 
 def get_color_from_value(value):
     rgb_color = cmap(value)[:3]  # Get the RGB part (ignore the alpha channel)
@@ -54,15 +58,14 @@ def element_mrid_feature(features: dict, element_mrid: dict) -> geojson.FeatureC
         feature_collection = []
         for feature in features:
             if feature['properties']['objecttype'] == 'ConformLoad' and feature['properties']['id'] in element_mrid['ConformLoad']:
-                feature['properties']['color'] = get_color_from_value(0)
-                feature['properties']['meter_id'] = feature['properties']['id']
+                feature['properties']['color'] = LOW_THRESHOLD_COLOR
                 feature['properties']['cfl_id'] = feature['properties']['id']
                 feature_collection.append(feature)
             elif feature['properties']['objecttype'] == 'AcLineSegment' and feature['properties']['id'] in element_mrid['AcLineSegment']:
-                feature['properties']['color'] = get_color_from_value(0)
+                feature['properties']['color'] = LOW_THRESHOLD_COLOR
                 feature_collection.append(feature)
             elif feature['properties']['objecttype'] == 'PowerTransformer' and feature['properties']['id'] in element_mrid['PowerTransformer'].keys():
-                feature['properties']['color'] = get_color_from_value(0)
+                feature['properties']['color'] = LOW_THRESHOLD_COLOR
                 feature['properties']['name'] = element_mrid['PowerTransformer'][feature['properties']['id']]['name']
                 feature['properties']['topology_id'] = element_mrid['PowerTransformer'][feature['properties']['id']]['topology_id']
                 feature_collection.append(feature)
