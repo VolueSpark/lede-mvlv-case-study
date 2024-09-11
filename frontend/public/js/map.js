@@ -2,8 +2,8 @@ mapboxgl.accessToken =  window.MAPBOX_TOKEN;//'pk.eyJ1IjoicGhpbGxpcG1hcmVlIiwiYS
 const map = new mapboxgl.Map({
     container: 'map',
     style: 'mapbox://styles/mapbox/light-v11',
-    center: [9.665452, 59.146073], // starting position [lng, lat]. Note that lat must be set between -90 and 90
-    zoom: 14 // starting zoom
+    center: [9.694324395243175, 59.12449186974682], // starting position [lng, lat]. Note that lat must be set between -90 and 90
+    zoom: 14.2 // starting zoom
 });
 
 const socket = new WebSocket(`ws://localhost:5100`);
@@ -27,7 +27,7 @@ function loadGrid() {
 
     map.addSource('geojson_id', {
         type: 'geojson',
-        data: '../assets/lede.geojson'
+        data: '../assets/lede.base.geojson'
     });
 
     map.loadImage('../icons/home.png', (error, image) => {
@@ -35,14 +35,14 @@ function loadGrid() {
         if (!map.hasImage('home')) map.addImage('home', image, { 'sdf': true });
     });
 
-    map.loadImage('../icons/transformer.png', (error, image) => {
-        if (error) throw error;
-        if (!map.hasImage('transformer')) map.addImage('transformer', image, { 'sdf': true });
-    });
-
     map.loadImage('../icons/substation.png', (error, image) => {
         if (error) throw error;
         if (!map.hasImage('substation')) map.addImage('substation', image, { 'sdf': true });
+    });
+
+    map.loadImage('../icons/transformer.png', (error, image) => {
+        if (error) throw error;
+        if (!map.hasImage('transformer')) map.addImage('transformer', image, { 'sdf': true });
     });
 
     map.addLayer({
@@ -61,41 +61,46 @@ function loadGrid() {
     });
 
     map.addLayer({
-        'id': `power-transformer`,
-        'type': 'symbol',
-        'source': 'geojson_id',
-        'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
-        'layout': {
-            'icon-image': 'substation', // Replace with the Maki icon name from Mapbox
-            'icon-size': 1.2, // Adjust icon size if needed
-            'icon-allow-overlap': false, // Allow icons to overlap
-            'text-field': ['get', 'name'], // Fetch the text from the 'name' property in the GeoJSON
-            'text-size': 12, // Adjust the text size (values like 2 are too small)
-            'text-offset': [0, 1.2], // Offset the text above the icon
-            'text-anchor': 'top' // Position text above the icon
-        },
-        "paint": {
-            "icon-color": ['get', 'color'],
-            "icon-halo-width": 0
-        }
-    });
-
-    map.addLayer({
         'id': `conform-load`,
         'type': 'symbol',
         'source': 'geojson_id',
         'filter': ['==', ['get', 'objecttype'], 'ConformLoad'],
         'layout': {
             'icon-image': 'home', // Replace with the Maki icon name from Mapbox
-            'icon-size': 0.3, // Adjust icon size if needed
-            'icon-allow-overlap': true, // Allow icons to overlap
-            //'text-field': ['get', 'cfl_id'], // Fetch the text from the 'name' property in the GeoJSON
+            'icon-size': 0.5, // Adjust icon size if needed
+            'icon-allow-overlap': false, // Allow icons to overlap
+            'text-field': ['get', 'name'], // Fetch the text from the 'name' property in the GeoJSON
             'text-size': 12, // Adjust the text size (values like 2 are too small)
             'text-offset': [0, 1.2], // Offset the text above the icon
             'text-anchor': 'top', // Position text above the icon
         },
         "paint": {
             "icon-color": ['get', 'color']
+        }
+    });
+
+    map.addLayer({
+        'id': `power-transformer`,
+        'type': 'symbol',
+        'source': 'geojson_id',
+        'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
+        'layout': {
+            'icon-image': 'substation', // Replace with the Maki icon name from Mapbox
+            'icon-size': 1.5, // Adjust icon size if needed
+            'icon-allow-overlap': true, // Allow icons to overlap
+            'text-field': [
+                'concat',
+                ['get', 'name'], // Get the 'name' property
+                ' (', // Add a space between the two fields
+                ['get', 'topology_id'], ')' // Get the 'topology_id' property
+            ], // Fetch the text from the 'name' property in the GeoJSON
+            'text-size': 14, // Adjust the text size (values like 2 are too small)
+            'text-offset': [0, 1.2], // Offset the text above the icon
+            'text-anchor': 'top' // Position text above the icon
+        },
+        "paint": {
+            "icon-color": ['get', 'color'],
+            "icon-halo-width": 0
         }
     });
 

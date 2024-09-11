@@ -16,7 +16,7 @@ GEOJSON_ELEMENTS = ['ConformLoad', 'AcLineSegment', 'PowerTransformer']
 BRONZE_PATH = os.path.join(PATH, 'bronze')
 SILVER_PATH = os.path.join(PATH, 'silver')
 
-FRONTEND_PATH = os.path.join(PATH, '../../frontend/public/assets/lede.geojson')
+FRONTEND_PATH = os.path.join(PATH, '../../frontend/public/assets')
 
 cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#00FF00", "#FFFF00", "#FF0000"])
 
@@ -35,9 +35,15 @@ def element_mrid_for_net(net: pp.pandapowerNet) -> dict:
     element_mrid = {}
     for element in GEOJSON_ELEMENTS:
         if element == 'ConformLoad':
-            element_mrid[element] = [cfl_mrid.replace('-','') for cfl_mrid in net.load['cfl_mrid'].to_list()]
+            element_mrid[element] = {
+                cfl_mrid.replace('-', ''): net.load.iloc[i]['name']
+                for i, cfl_mrid in enumerate( set(net.load['cfl_mrid'].to_list()) )
+            }
         elif element == 'PowerTransformer':
-            element_mrid[element] = { mrid.replace('-',''):net.trafo.iloc[i]['name'] for i, mrid in enumerate(net.trafo['mrid'].to_list())}
+            element_mrid[element] = { mrid.replace('-',''):{
+                'name':net.trafo.iloc[i]['name'],
+                'topology_id':net.trafo.iloc[i]['topology_id']
+            } for i, mrid in enumerate(net.trafo['mrid'].to_list())}
         elif element == 'AcLineSegment':
             element_mrid[element] = [mrid.replace('-','') for mrid in net.line['mrid'].to_list()]
     return element_mrid
@@ -49,6 +55,7 @@ def element_mrid_feature(features: dict, element_mrid: dict) -> geojson.FeatureC
         for feature in features:
             if feature['properties']['objecttype'] == 'ConformLoad' and feature['properties']['id'] in element_mrid['ConformLoad']:
                 feature['properties']['color'] = get_color_from_value(0)
+                feature['properties']['meter_id'] = feature['properties']['id']
                 feature['properties']['cfl_id'] = feature['properties']['id']
                 feature_collection.append(feature)
             elif feature['properties']['objecttype'] == 'AcLineSegment' and feature['properties']['id'] in element_mrid['AcLineSegment']:
@@ -56,7 +63,8 @@ def element_mrid_feature(features: dict, element_mrid: dict) -> geojson.FeatureC
                 feature_collection.append(feature)
             elif feature['properties']['objecttype'] == 'PowerTransformer' and feature['properties']['id'] in element_mrid['PowerTransformer'].keys():
                 feature['properties']['color'] = get_color_from_value(0)
-                feature['properties']['name'] = element_mrid['PowerTransformer'][feature['properties']['id']]
+                feature['properties']['name'] = element_mrid['PowerTransformer'][feature['properties']['id']]['name']
+                feature['properties']['topology_id'] = element_mrid['PowerTransformer'][feature['properties']['id']]['topology_id']
                 feature_collection.append(feature)
             else:
                 logger.exception(f"Feature id {feature['properties']['id']} could not be color mapped")
@@ -83,5 +91,7 @@ if __name__ == "__main__":
     with open(os.path.join(SILVER_PATH, 'lede.geojson'), 'w') as fp:
         geojson.dump(feature_collection, fp)
 
-    with open(FRONTEND_PATH, 'w') as fp:
+    with open(os.path.join(FRONTEND_PATH, 'lede.geojson'), 'w') as fp:
         geojson.dump(feature_collection, fp)
+    with open(os.path.join(FRONTEND_PATH, 'lede.base.geojson'), 'w') as fp:
+            geojson.dump(feature_collection, fp)

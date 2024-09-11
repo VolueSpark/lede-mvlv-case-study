@@ -6,6 +6,8 @@ import os, json, uuid
 import polars as pl
 import time
 
+FLEXIBILITY_MAX_USAGE_SCALE  = 0.5
+
 from lib.schemas.topology import (
     Topology,
     UsagePoint,
@@ -60,6 +62,7 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet):
             net,
             name=trafo.name,
             mrid=trafo.mrid,
+            topology_id=trafo.lv_bus,
             hv_bus=pp_bus(bus=trafo.hv_bus, net=net),
             lv_bus=pp_bus(bus=trafo.lv_bus, net=net),
             sn_mva=trafo.sn_mva,
@@ -261,8 +264,7 @@ class Lfa(DataLoader):
             work_path: str,
             data_path: str,
             lv_path: str,
-            mv_path: str,
-            flex_path: str=None
+            mv_path: str
     ):
         os.makedirs(work_path, exist_ok=True)
         super().__init__(
@@ -275,8 +277,6 @@ class Lfa(DataLoader):
         self.mv_path = mv_path
         self.lv_path = lv_path
         self.net = self.read_net()
-        self.flex = pl.DataFrame() if flex_path is None else pl.read_parquet(flex_path)
-
 
     @decorator_timer
     def create_net(self, lv: List[Topology], mv: Topology) -> pp.pandapowerNet:
@@ -327,9 +327,9 @@ class Lfa(DataLoader):
                 create_switch(element=lv_switch, net=net)
 
         # loads
-        for i, mv_laod in mv.load:
-            logger.debug(msg=f'compile mv load {i + 1} with name: {mv_laod.name}={mv_laod.mrid}')
-            create_load(load=mv_laod, net=net)
+        for i, mv_load in mv.load:
+            logger.debug(msg=f'compile mv load {i + 1} with name: {mv_load.name}={mv_load.mrid}')
+            create_load(load=mv_load, net=net)
 
         for i, lv_i in enumerate(lv):
             logger.debug(msg=f'compile lv load group {i + 1} for uuid {lv_i.uuid}')
@@ -385,14 +385,15 @@ class Lfa(DataLoader):
         net.load['q_mvar'] = 0.0
         for i, load in enumerate(load_profile.iter_rows(named=True)):
             if load['meter_id'] in net.load['name'].to_list():
-                if activate_flex and load['meter_id'] in self.flex['meter_id']:
+                if self.flex_assets is not None and load['meter_id'] in self.flex_assets['meter_id']:
 
-                    flex_meter = self.flex.filter(pl.col('meter_id')==load['meter_id'])
-                    max_usage_limit_mwh = flex_meter['max_usage_limit_kwh'].item()/1000
-                    max_usage_limit_mvarh = flex_meter['max_usage_limit_kwh'].item()/1000
+                    flex_meter = self.flex_assets.filter(pl.col('meter_id')==load['meter_id'])
+                    max_usage_limit_mwh = flex_meter['max_usage_p_kw'].item()/1000
+                    max_usage_limit_mvarh = flex_meter['max_usage_q_kvar'].item()/1000
 
-                    logger.info(f"[{i+1}] Activate flexible load {load['meter_id']} for max usage: "
+                    logger.info(f"[{i+1}] Activate flexible asset {flex_meter['meter_id'].item()} in topology {flex_meter['uuid'].item()} for max usage: "
                                 f"(P,Q)->({round(load['p_mw']*1000,2)},{round(load['q_mvar']*1000,2)})<=({round(max_usage_limit_mwh*1000,2)},{round(max_usage_limit_mvarh*1000,2)})  ")
+
                     net.load.loc[net.load['name'] == load['meter_id'], 'p_mw'] = min(load['p_mw'], max_usage_limit_mwh)
                     net.load.loc[net.load['name'] == load['meter_id'], 'q_mvar'] = min(load['q_mvar'], max_usage_limit_mvarh)
                 else:
@@ -439,18 +440,20 @@ class Lfa(DataLoader):
             from_date: datetime,
             to_date: datetime = None,
             step_every: int = 1,
-            activate_flex: bool = False,
+            flex_assets: pl.DataFrame=None
     ) -> Tuple[datetime, dict]:
         net = self.read_net()
+        self.flex_assets = flex_assets
+
         for load_profile in self.load_profile_iter(
                 from_date=from_date,
                 to_date=to_date,
                 step_every=step_every
         ):
+
             self.set_load(
                 load_profile,
-                net,
-                activate_flex=activate_flex
+                net
             )
             pp.runpp(net)
             yield (load_profile['datetime'][0], self.parse_result(net=net))

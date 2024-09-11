@@ -1,10 +1,12 @@
-import random
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from matplotlib import colors
 from lib.lfa import Lfa
 import polars as pl
-import os, json, requests
+import os, json, requests, math
+from typing import Tuple, List
+import pandapower as pp
+
+from lib import logger
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -12,14 +14,13 @@ WORK_PATH = os.path.join(PATH, 'lfa')
 MV_PATH = os.path.join(PATH, '../data/topology/silver/mv')
 LV_PATH = os.path.join(PATH, '../data/topology/silver/lv')
 DATA_PATH = os.path.join(PATH, '../data/ami/silver/meas')
-FLEX_PATH = os.path.join(PATH, 'misc/flex_assets.parquet')
 
-from lib import logger
-
+FLEX_ASSETS_PATH = os.path.join(PATH, 'flex')
 
 cmap = colors.LinearSegmentedColormap.from_list("custom_cmap", ["#00FF00", "#FFFF00", "#FF0000"])
 def get_color_from_value(value):
-    #value = random.random()
+    if math.isnan(value):
+        return "#00FF00"
     rgb_color = cmap(value)[:3]  # Get the RGB part (ignore the alpha channel)
     return colors.rgb2hex(rgb_color)
 
@@ -45,7 +46,7 @@ def front_end_update(date: datetime, lfa_result: dict):
     def map_loss_percent_range(
             loss_percent: float,
             loss_percent_range_min: float=0.0,
-            loss_percent_range_max: float=20
+            loss_percent_range_max: float=5
     ):
         loss_percent = max(min(loss_percent, loss_percent_range_max),loss_percent_range_min)
         return get_color_from_value(value=(loss_percent-loss_percent_range_min)/(loss_percent_range_max-loss_percent_range_min))
@@ -90,37 +91,107 @@ def front_end_update(date: datetime, lfa_result: dict):
         logger.exception(f'[{datetime.utcnow().isoformat()}] Update of Lede API failed for LFA simulation at {date.isoformat()}')
 
 
-def lfa_poc_1(lfa: Lfa):
-    horizon_hours = 8*3*30
-    from_date = datetime(year=2024, month=2, day=1)
-    to_date = from_date + timedelta(hours=horizon_hours)
+class FlexAssets:
 
-    for (date, lfa_result) in  lfa.run_lfa(
-            from_date=from_date,
-            to_date=to_date,
-            step_every=8
+    def __init__(
+            self,
+            lfa_path: str,
+            flex_assets_path: str,
+            max_usage_pct_limit: int = 50,
     ):
-        front_end_update(
-            date=date,
-            lfa_result=lfa_result
-        )
+        self.flex_assets_path = flex_assets_path
+        self.max_usage_pct_limit = max_usage_pct_limit
+        if not os.path.exists(os.path.join(flex_assets_path, 'flex_assets.json')):
+            raise Exception(f"{os.path.join(flex_assets_path, 'flex_assets.json')} does noet exists")
 
-def lfa_poc_2(lfa: Lfa):
-    extremum_points = pl.read_parquet(os.path.join(PATH, 'misc/extremum_points.parquet'))
-    extremum_date_samples = extremum_points['datetime'].to_list()
-    lfa_results_active_flex = []
-    lfa_results_inactive_flex = []
+        if not os.path.exists(lfa_path):
+            raise Exception(f"{lfa_path} does noet exists")
 
-    for extremum_date in extremum_date_samples:
-        for (date, lfa_result) in lfa.run_lfa(
-                from_date=extremum_date, activate_flex = True
-        ):
-            lfa_results_active_flex.append({date.isoformat(): lfa_result})
-        for (date, lfa_result) in lfa.run_lfa(
-                from_date=extremum_date, activate_flex = False
-        ):
-            lfa_results_inactive_flex.append({date.isoformat(): lfa_result})
+        with open(os.path.join(flex_assets_path, 'flex_assets.json'), 'r') as fp:
+            flex_assets = json.load(fp)
+        metadata = pl.read_parquet(os.path.join(lfa_path, 'metadata.parquet'))
+        self.net = pp.from_sqlite(os.path.join(lfa_path, 'net.sqlite'))
 
+        if not os.path.exists(os.path.join(flex_assets_path, 'flex_assets.parquet')):
+
+            for i, asset in enumerate(flex_assets):
+                flex_asset = metadata.filter(pl.col('meter_id')==asset['meter_id'])
+                flex_assets[i]['max_usage_p_kw'] = flex_asset['p_kw_max'].item()*max_usage_pct_limit/100
+                flex_assets[i]['max_usage_q_kvar'] = flex_asset['q_kvar_max'].item()*max_usage_pct_limit/100
+
+            df = pl.from_dicts(flex_assets)
+            (df.join(df.group_by('uuid').agg(pl.col('meter_id').n_unique()
+                                             .alias('#cnt')), on='uuid', validate='m:1')
+             .write_parquet(os.path.join(flex_assets_path, 'flex_assets.parquet')))
+        self.flex_assets = pl.read_parquet(os.path.join(flex_assets_path, 'flex_assets.parquet'))
+
+        uuid_list = list(set(self.flex_assets['uuid'].to_list())) # all topologies of interest
+        uuid_list.append(self.net.name) # add grid tie-in
+
+
+        self.uuid_trafo_map = {topology_id:self.net.trafo.iloc[i]['name'] for i, topology_id in enumerate(self.net.trafo['topology_id']) if topology_id in uuid_list}
+        self.log_uuid = { uuid:[] for uuid in uuid_list}
+
+    def log(self,date: datetime, lfa_result: Tuple[datetime, dict], flex_active: bool):
+
+        for uuid in self.log_uuid.keys():
+            trafo_mrid = self.net.trafo.loc[self.net.trafo['topology_id']==uuid]['mrid'].item()
+            loading_percent = lfa_result['trafo'].filter(pl.col('trafo_mrid')==trafo_mrid.replace('-',''))['loading_percent'].item()
+            self.log_uuid[uuid].append(
+                {
+                    'date': date,
+                    'trafo_mrid': trafo_mrid,
+                    'loading_percent': loading_percent,
+                    'flex_active':flex_active
+                }
+            )
+
+    def save(self, name):
+        pl.from_dicts(self.log_uuid).write_parquet(os.path.join(self.flex_assets_path, name))
+
+    def plot(self, name):
+        if not os.path.exists(os.path.join(self.flex_assets_path, name)):
+            logger.info(f'No data to plot for supplied path {os.path.join(self.flex_assets_path, name)}')
+            return
+
+        import matplotlib.pyplot as plt
+
+        df = pl.read_parquet(os.path.join(self.flex_assets_path, name))
+
+        data = {}
+        for uuid in df.columns:
+            df_ = df.select(pl.col(uuid)).unnest(uuid).sort(by='date')
+
+            data[uuid] = {
+                't': df_.filter(pl.col('flex_active') == True).sort(by='date', descending=False)['date'].to_list(),
+                'y_flex_active': df_.filter(pl.col('flex_active') == True).sort(by='date', descending=False)['loading_percent'].to_list(),
+                'y_flex_inactive': df_.filter(pl.col('flex_active') == False).sort(by='date', descending=False)['loading_percent'].to_list(),
+                'title': f'{self.uuid_trafo_map[uuid]} ({uuid})'
+            }
+
+        fig, axs = plt.subplots(len(df.columns),1, figsize=(15,10), sharex=True)
+
+        fig.text(0.5, 0.0, 'time', ha='center', fontsize=16)
+        fig.text(0.0, 0.5, f'Trafo. Util. [%] with {self.max_usage_pct_limit}% max usage flexibility activation', va='center', rotation='vertical', fontsize=14)
+
+        for i, (uuid_i, data_i) in enumerate(data.items()):
+
+            fill_where = [True if ((date.hour > 6) and (date.hour <= 18)) else False for date in  data_i['t']]
+            flex_asset_cnt = self.flex_assets.filter(pl.col('uuid')==uuid_i)['#cnt'][0] if len(self.flex_assets.filter(pl.col('uuid')==uuid_i)['#cnt']) else 0
+
+            y_flex_active = [ y_flex_active if fill_where[i] else data_i['y_flex_inactive'][i] for i, y_flex_active in enumerate(data_i['y_flex_active'])   ]
+
+            axs[i].plot(data_i['t'], y_flex_active, label=f'Flex (#{flex_asset_cnt})', color="#DB7889")
+            axs[i].plot(data_i['t'], data_i['y_flex_inactive'], label='Normal', color="#000000")
+
+            axs[i].fill_between(data_i['t'], data_i['y_flex_active'], data_i['y_flex_inactive'], alpha=0.2, color="#DB7889", where=fill_where)
+
+            axs[i].set_title(data_i['title'])
+            axs[i].legend(loc="upper right")
+
+        fig.suptitle(f'Transformer  Utilization with {self.max_usage_pct_limit}% max usage flexibility activation: 6am-18pm', fontsize=22)
+        plt.tight_layout()
+        plt.show()
 
 if __name__ == "__main__":
 
@@ -128,11 +199,53 @@ if __name__ == "__main__":
         work_path=WORK_PATH,
         mv_path=MV_PATH,
         lv_path=LV_PATH,
-        data_path=DATA_PATH,
-        flex_path=FLEX_PATH
+        data_path=DATA_PATH
     )
 
-    lfa_poc_2(lfa=lfa)
+    from_date = datetime(2024, 1, 3, 0, 0)
+    to_date = datetime(2024, 1, 7, 0, 0)
+
+    flex = FlexAssets(
+        lfa_path=WORK_PATH,
+        flex_assets_path=FLEX_ASSETS_PATH
+    )
+    flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
+    exit(1)
+
+    for (date, lfa_result) in lfa.run_lfa(
+            from_date=from_date,
+            to_date=to_date,
+            step_every=1
+    ):
+        flex.log(date, lfa_result, flex_active=False)
+
+        #front_end_update(
+        #    date=date,
+        #    lfa_result=lfa_result
+        #)
+
+        logger.info(f'[{date.isoformat()}] Lfa processed for inactive flexible assets')
+
+    for (date, lfa_result) in lfa.run_lfa(
+            from_date=from_date,
+            to_date=to_date,
+            step_every=1,
+            flex_assets=flex.flex_assets
+    ):
+
+        flex.log(date, lfa_result, flex_active=True)
+
+
+        #front_end_update(
+        #    date=date,
+        #    lfa_result=lfa_result
+        #)
+
+        logger.info(f'[{date.isoformat()}] Lfa processed for active flexible assets')
+
+    flex.save(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
+
+
 
 
 
