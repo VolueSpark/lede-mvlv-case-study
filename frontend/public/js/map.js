@@ -152,11 +152,6 @@ function loadGrid() {
         popup.setLngLat(coordinates).setHTML(description).addTo(map);
     });
 
-    map.on('mouseleave', 'conform-load', () => {
-        map.getCanvas().style.cursor = '';
-        popup.remove();
-    });
-
 }
 
 map.on('load', loadGrid);

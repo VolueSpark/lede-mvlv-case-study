@@ -56,7 +56,7 @@ def create_ext_grid(bus: ConnectivityNode, net: pp.pandapowerNet):
         raise Exception(f'create_ext_grid raised exception for multiple external grid entries of bus={bus.bus} in net')
 
 
-def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet):
+def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: bool=None):
     if trafo.name not in net.trafo['name']:
         pp.create_transformer_from_parameters(
             net,
@@ -68,7 +68,7 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet):
             sn_mva=trafo.sn_mva,
             vn_hv_kv=trafo.vn_hv_kv,
             vn_lv_kv=trafo.vn_lv_kv,
-            in_service=trafo.in_service,
+            in_service=in_service if in_service is not None else trafo.in_service,
             vkr_percent=5,  # TODO Verify number
             vk_percent=10,  # TODO Verify number
             pfe_kw=2,  # TODO Verify number
@@ -147,33 +147,36 @@ class LfaValidation:
 
         logger.debug(msg=f'Creating net for topology: {topology.uuid}')
 
-        net = pp.create_empty_network(name=topology.uuid)
+        self.net = pp.create_empty_network(name=topology.uuid)
 
         for bus in topology.bus:
-            create_bus(bus=bus, net=net)
+            create_bus(bus=bus, net=self.net)
 
         for bus in topology.slack:
-            create_ext_grid(bus=bus, net=net)
+            create_ext_grid(bus=bus, net=self.net)
 
         for trafo in topology.trafo:
-            create_trafo(trafo=trafo, net=net)
+            create_trafo(trafo=trafo, net=self.net, in_service=True)
 
         for branch in topology.branch:
-            create_branch(branch=branch, net=net)
+            create_branch(branch=branch, net=self.net)
 
         for switch in topology.switch:
-            create_switch(element=switch, net=net)
+            create_switch(element=switch, net=self.net)
 
         for load in topology.load:
-            create_load(load=load, net=net)
+            create_load(load=load, net=self.net)
 
         for ghost in topology.ghost:
-            create_ghost(ghost=ghost, net=net)
+            create_ghost(ghost=ghost, net=self.net)
 
+    @property
+    def validate(self):
         try:
-            pp.runpp(net)
+            pp.runpp(self.net)
+            assert self.net['converged']
         except Exception as e:
-            logger.exception(f'topology {topology.uuid} failed so pass zero load-profile analysis')
+            logger.exception(f'topology {self.net.name} failed so pass zero load-profile analysis')
 
 
 class DataLoader():
@@ -193,12 +196,12 @@ class DataLoader():
             if not os.path.exists(os.path.join(work_path, 'data', f"{topology_j}.parquet")):
                 with open(os.path.join(lv_path, topology_j), 'r') as fp:
 
-                    meter_list = [load['meter_id'] for load in json.load(fp)['load']]
+                    meter_list = {load['meter_id']:load['cfl_mrid'] for load in json.load(fp)['load']}
 
                     df = pl.DataFrame()
-                    for i, meter_i in enumerate(meter_list):
+                    for i, (meter_i, cfl_mrid_i) in enumerate(meter_list.items()):
                         if os.path.exists(os.path.join(data_path, meter_i)):
-                            df = df.vstack(pl.read_parquet(os.path.join(data_path, meter_i)))
+                            df = df.vstack(pl.read_parquet(os.path.join(data_path, meter_i)).with_columns(pl.lit(cfl_mrid_i).alias('cfl_mrid')))
                         else:
                             logger.warning(f"[meter {i+1} of {len(meter_list)}] {topology_j} has no data for meter {meter_i}")
 
@@ -206,11 +209,11 @@ class DataLoader():
                         df=(
                             df.with_columns(((pl.col('p_kwh_out') - pl.col('p_kwh_in')) / 1e3).alias('p_mw'),
                                             ((pl.col('q_kvarh_out') - pl.col('q_kvarh_in')) / 1e3).alias('q_mvar'))
-                            .with_columns(((pl.col('p_mw') ** 2 + pl.col('q_mvar') ** 2) ** 0.5).alias('s_mva'))
                             .drop('p_kwh_in', 'p_kwh_out', 'q_kvarh_in', 'q_kvarh_out')
                         )
 
                         metadata = metadata.vstack(
+                            df.select('meter_id', 'cfl_mrid').unique().join(
                             (
                                 df.group_by('meter_id')
                                 .agg(
@@ -222,7 +225,7 @@ class DataLoader():
                                     (pl.col('q_mvar').mean() * 1000).round(1).alias('q_kvar_mean'),
                                     pl.lit(topology_j).alias('uuid')
                                 ).select('uuid', 'meter_id', 'p_kw_min', 'p_kw_mean', 'p_kw_max', 'q_kvar_min', 'q_kvar_mean', 'q_kvar_max')
-                            )
+                            ), on='meter_id', validate='1:1')
                         )
 
                         df.write_parquet(os.path.join(self.data_path, f"{topology_j}.parquet"))
@@ -359,6 +362,7 @@ class Lfa(DataLoader):
 
         net = self.create_net(
             lv=[read(topology_path=os.path.join(self.lv_path, lv_name)) for lv_name in os.listdir(self.lv_path)],
+            #lv=[read(topology_path=os.path.join(self.lv_path, lv_name)) for lv_name in ['aaef8b14-7ba6-5a09-8ee2-4629857ae952']], # TODO remove
             mv=read(topology_path=os.path.join(self.mv_path, os.listdir(self.mv_path)[0]))
         )
 

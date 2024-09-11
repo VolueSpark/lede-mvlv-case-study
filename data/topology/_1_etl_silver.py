@@ -55,7 +55,7 @@ if __name__ == "__main__":
                 if lv_topology.trafo[0].mrid not in mv_trafo_list:
                     raise Exception(f'[{index+1}] topology {lv_topology.uuid} trafo mrid is not found in the mv layer')
 
-                LfaValidation(topology=lv_topology)
+                LfaValidation(topology=lv_topology).validate
 
                 lv_trafo = lv_topology.trafo[0]
                 mv_trafo = [mv_trafo for mv_trafo in mv_topology.trafo if mv_trafo.mrid == lv_trafo.mrid ][0]
