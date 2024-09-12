@@ -209,9 +209,55 @@ class FlexAssets:
 
         fig.suptitle(f'Transformer  Utilization with {self.max_usage_pct_limit}% max usage flexibility activation: 6am-18pm', fontsize=22)
         plt.tight_layout()
-        plt.show()
+
+        if not os.path.exists(os.path.join(self.flex_assets_path, f"{name.split('.')[0]}.png")):
+            fig.savefig(os.path.join(self.flex_assets_path, f"{name.split('.')[0]}.png"), dpi=300)
+
+def run_backend(from_date: datetime, to_date, lfa: Lfa, flex: FlexAssets):
+    name = f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet'
+
+    if not os.path.exists(os.path.join(flex.flex_assets_path, name)):
+
+        for (date, lfa_result) in lfa.run_lfa(
+                from_date=from_date,
+                to_date=to_date,
+                step_every=1
+        ):
+            flex.log(date, lfa_result, flex_active=False)
+            logger.info(f'[{date.isoformat()}] Lfa processed for inactive flexible assets')
+
+        for (date, lfa_result) in lfa.run_lfa(
+                from_date=from_date,
+                to_date=to_date,
+                step_every=1,
+                flex_assets=flex.flex_assets
+        ):
+
+            flex.log(date, lfa_result, flex_active=True)
+            logger.info(f'[{date.isoformat()}] Lfa processed for active flexible assets')
+
+        flex.save(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
+    flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
+
+
+def run_frontend(from_date: datetime, to_date, lfa: Lfa, flex: FlexAssets):
+
+    for (date, lfa_result) in lfa.run_lfa(
+            from_date=from_date,
+            to_date=to_date,
+            step_every=8,
+    ):
+        front_end_update(
+            date=date,
+            lfa_result=lfa_result
+        )
+        logger.info(f'[{date.isoformat()}] Lfa processed for inactive flexible assets')
+
 
 if __name__ == "__main__":
+
+    from_date = datetime(2024, 1, 3, 0, 0)
+    to_date = datetime(2024, 1, 7, 0, 0)
 
     lfa = Lfa(
         work_path=WORK_PATH,
@@ -220,49 +266,26 @@ if __name__ == "__main__":
         data_path=DATA_PATH
     )
 
-    from_date = datetime(2024, 1, 3, 0, 0)
-    to_date = datetime(2024, 1, 7, 0, 0)
-
-    log_path = f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet'
-
     flex = FlexAssets(
         lfa_path=WORK_PATH,
         flex_assets_path=FLEX_ASSETS_PATH
     )
 
-    for (date, lfa_result) in lfa.run_lfa(
-            from_date=from_date,
-            to_date=to_date,
-            step_every=1
-    ):
-        flex.log(date, lfa_result, flex_active=False)
+    #run_backend(
+    #    from_date=from_date,
+    #    to_date=to_date,
+    #    lfa=lfa,
+    #    flex=flex
+    #)
 
-        front_end_update(
-            date=date,
-            lfa_result=lfa_result
-        )
-
-        logger.info(f'[{date.isoformat()}] Lfa processed for inactive flexible assets')
-
-    for (date, lfa_result) in lfa.run_lfa(
-            from_date=from_date,
-            to_date=to_date,
-            step_every=1,
-            flex_assets=flex.flex_assets
-    ):
-
-        flex.log(date, lfa_result, flex_active=True)
+    run_frontend(
+        from_date=datetime(2024, 1, 1, 0, 0),
+        to_date=datetime(2024, 3, 1, 0, 0),
+        lfa=lfa,
+        flex=flex
+    )
 
 
-        front_end_update(
-            date=date,
-            lfa_result=lfa_result
-        )
-
-        logger.info(f'[{date.isoformat()}] Lfa processed for active flexible assets')
-
-    flex.save()
-    flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
 
 
 

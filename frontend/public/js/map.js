@@ -125,6 +125,11 @@ function loadGrid() {
         popup.setLngLat(coordinates).setHTML(description).addTo(map);
     });
 
+    map.on('mouseleave', 'power-transformer', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+    });
+
     map.on('mouseenter', 'conform-load', (e) => {
         // Change the cursor style as a UI indicator.
         map.getCanvas().style.cursor = 'pointer';
@@ -146,6 +151,11 @@ function loadGrid() {
         // Populate the popup and set its coordinates
         // based on the feature found.
         popup.setLngLat(coordinates).setHTML(description).addTo(map);
+    });
+
+    map.on('mouseleave', 'conform-load', () => {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
     });
 
 }
