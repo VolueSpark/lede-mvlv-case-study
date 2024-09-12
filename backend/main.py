@@ -256,9 +256,6 @@ def run_frontend(from_date: datetime, to_date, lfa: Lfa, flex: FlexAssets):
 
 if __name__ == "__main__":
 
-    from_date = datetime(2024, 1, 3, 0, 0)
-    to_date = datetime(2024, 1, 7, 0, 0)
-
     lfa = Lfa(
         work_path=WORK_PATH,
         mv_path=MV_PATH,
@@ -272,8 +269,8 @@ if __name__ == "__main__":
     )
 
     #run_backend(
-    #    from_date=from_date,
-    #    to_date=to_date,
+    #    from_date=datetime(2024, 1, 3, 0, 0),
+    #    to_date=datetime(2024, 1, 7, 0, 0),
     #    lfa=lfa,
     #    flex=flex
     #)
