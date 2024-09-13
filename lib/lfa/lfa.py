@@ -4,11 +4,11 @@ from typing import List, Any, Tuple
 import pandapower as pp
 import os, json, uuid
 import polars as pl
-import time
+
 
 FLEXIBILITY_MAX_USAGE_SCALE  = 0.5
 
-from lib.schemas.topology import (
+from lib.lfa.topology import (
     Topology,
     UsagePoint,
     ConnectivityNode,

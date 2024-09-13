@@ -2,7 +2,7 @@ import re, json, shutil, os
 import polars as pl
 
 from lib import logger
-from lib.schemas.memgraph import MemgraphEvent
+from lib.lfa.memgraph import MemgraphEvent
 
 PATH = os.path.dirname(__file__)
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 from matplotlib import colors
-from lib.lfa import Lfa
+from lib.lfa.lfa import Lfa
 import polars as pl
 import os, json, requests, math
 from typing import Tuple, List

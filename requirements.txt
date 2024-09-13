@@ -16,3 +16,7 @@ azure-storage-blob==12.19.0
 python-dotenv==1.0.1
 xlrd==2.0.1
 kaleido
+torch==2.4.1
+PyYAML==6.0.2
+wapi-python==0.7.15
+shapely==2.0.6

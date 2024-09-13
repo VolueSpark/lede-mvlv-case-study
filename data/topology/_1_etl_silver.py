@@ -3,7 +3,7 @@ import re, json, shutil, os
 
 from lib import logger
 from lib.lfa import LfaValidation
-from lib.schemas.topology import Topology
+from lib.lfa.topology import Topology
 
 PATH = os.path.dirname(__file__)
 
