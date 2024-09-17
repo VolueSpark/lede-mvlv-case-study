@@ -1,90 +1,59 @@
-from sklearn.preprocessing import MinMaxScaler
-from typing import List
 import polars as pl
-import torch, os, json
-import numpy as np
+import torch
 
 from lib import logger
 
-class WindowGenerator:
-    def __init__(
-            self,
-            prediction_horizon: int,
-            historical_horizon: int
-    ):
-        pass
+class WidowGenerator(torch.utils.data.Dataset):
+    def __init__(self, data: pl.DataFrame, params: dict):
+        super(WidowGenerator, self).__init__()
 
-    def split_window(self, window: torch.Tensor):
-        # Inputs prior to input_width
-        inputs_prior = window[:, :self.input_width, :]
+        self.inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_'}
+        self.exo_inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_' and feature[-2:]!='_y'}
+        self.targets = {feature:i for i, feature in enumerate(data.columns) if feature[-2:]=='_y'}
 
-        # Inputs posterior and selecting relevant targets
-        inputs_posterior = torch.stack([window[:, self.input_width:,
-                                        index if feature_name in self.targets.keys()
-                                        else index - self.label_width]
-                                        for index, feature_name in enumerate(self.features)], dim=-1)
+        self.features = dict(sorted((self.inputs | self.exo_inputs | self.targets).items(), key=lambda item: item[1], reverse=False))
 
-        # Concatenating inputs
-        inputs = torch.cat([inputs_prior, inputs_posterior], dim=1)
+        self.data = data.select(self.features.keys()).to_numpy()
+        self.params = params
 
-        # Selecting targets
-        targets = torch.stack([window[:, self.input_width:, index]
-                               for index, feature_name in enumerate(self.features)
-                               if feature_name in self.targets.keys()], dim=-1)
-
-        return inputs, targets
-
-    def make_dataset(self, data: pl.DataFrame, shuffle=True):
-        data = data.to_numpy()
-
-        # Generating windowed dataset
-        dataset = TimeseriesDataset(data, self.total_window_size)
-        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=shuffle)
-
-        return loader
-
-
-class TimeseriesDataset(torch.utils.data.Dataset):
-    def __init__(self, data: np.ndarray, window_size: int):
-        self.data = data
-        self.window_size = window_size
+        self.seq_len = params['sequence_length']
+        self.pred_hor = params['prediction_horizon']
+        self.win_len = params['sequence_length'] + params['prediction_horizon']
 
     def __len__(self):
-        return len(self.data) - self.window_size + 1
+        return len(self.data) - self.win_len + 1
 
     def __getitem__(self, idx):
-        window = self.data[idx:idx + self.window_size]
-        return torch.tensor(window, dtype=torch.float32)
+        window = self.data[idx:idx + self.win_len]
+
+        x = torch.cat( [torch.tensor(window[0:self.seq_len, col_idx], dtype=torch.float32).unsqueeze(-1) for feature, col_idx in self.inputs.items()], dim=-1)
+        x_exo = torch.cat( [torch.tensor(window[self.seq_len:self.win_len, col_idx], dtype=torch.float32).unsqueeze(-1) for feature, col_idx in self.exo_inputs.items()], dim=-1)
+        y = torch.cat( [torch.tensor(window[self.seq_len:self.win_len, col_idx], dtype=torch.float32).unsqueeze(-1) for feature, col_idx in self.targets.items()], dim=-1)
+
+        return {'x':x, 'x_exo':x_exo, 'y':y}
 
 
-class DataLoader(WindowGenerator):
-    def __init__( self, data_path: str, params: dict):
-        self.data = pl.read_parquet(os.path.join(data_path, 'data.parquet'))
+class DataLoader(torch.utils.data.DataLoader):
+    def __init__(self, data: pl.DataFrame, params: dict):
+        dataset = WidowGenerator(data, params['window'])
+        super(DataLoader, self).__init__(dataset, batch_size=params['batch_size'], shuffle=params['shuffle'])
 
-        n = self.data.shape[0]
-        self.train = self.data[:int(n * params['split'][0])]
-        self.test = self.data[int(n * params['split'][1]):]
-        self.val = self.data[int(n * params['split'][0]):int(n * params['split'][1])]
+        sample_batched = next(iter(self))
 
+        logger.info(f"(x, x_eco, y)<#batch, #sequence, #features> = (<{sample_batched['x'].size()}>, <{sample_batched['x_exo'].size()}>, <{sample_batched['y'].size()}>)")
 
-        logger.info(f"Split data on a training:validation:test ratio of "
-              f"{int(n * params['split'][0])}:"
-              f"{int(n * (params['split'][1] - params['split'][0]))}:"
-              f"{int(n * (1 - params['split'][1]))}")
+        input_start = 0
+        input_end = input_start + params['window']['sequence_length']
+        input_data = data.select(dataset.inputs.keys())[input_start:input_end].to_numpy()
 
-        self.scaler = MinMaxScaler()
-        self.scaler.fit(self.train)
+        exo_input_start = params['window']['sequence_length']
+        exo_input_end = exo_input_start+params['window']['prediction_horizon']
+        exo_input_data = data.select(dataset.exo_inputs.keys())[exo_input_start:exo_input_end].to_numpy()
 
-        self.train_scl = pl.DataFrame(self.scaler.transform(self.train), self.data.schema)
-        self.test_scl = pl.DataFrame(self.scaler.transform(self.test), self.data.schema)
-        self.val_scl = pl.DataFrame(self.scaler.transform(self.val), self.data.schema)
+        target_start = params['window']['sequence_length']
+        target_end = target_start+params['window']['prediction_horizon']
+        target_data = data.select(dataset.targets.keys())[target_start:target_end].to_numpy()
 
-
-        with open(os.path.join(data_path, 'data/gold/inputs.json'), 'rb') as fp:
-            self.inputs = json.load(fp)
-        with open(os.path.join(data_path, 'data/gold/labels.json'), 'rb') as fp:
-            self.labels = json.load(fp)
-
-    def make_train_dataset(self):
-
-        return inputs, exogenous, targets
+        assert abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7, f'Validation valued for input data'
+        assert abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo input data'
+        assert abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7, f'Validation valued for target data'

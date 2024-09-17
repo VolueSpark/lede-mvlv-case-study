@@ -16,9 +16,13 @@
           split: [0.8, 0.9],
           dataloader:
             {
-              prediction_horizon: 24,
-              sequence_length: 48,
-              batch_size: 64
+              window:
+                {
+                  prediction_horizon: 24,
+                  sequence_length: 48,
+                },
+              batch_size: 64,
+              shuffle: False
             }
         }
     }

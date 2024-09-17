@@ -11,3 +11,5 @@ if __name__ == "__main__":
         uuid=UUID,
         work_dir=WORK_PATH
     ).create_model
+
+    model.train_model()

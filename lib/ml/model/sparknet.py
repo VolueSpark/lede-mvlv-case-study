@@ -1,15 +1,16 @@
 from sklearn.preprocessing import MinMaxScaler
-from torch.utils.data import Dataset, DataLoader
 from torch import nn
 import polars as pl
-import numpy as np
-import os, torch, json
+import os, torch
+from tqdm import tqdm
 
 from lib import logger
+from lib.ml.dataloader import DataLoader
 
 
-class TimeseriesDataset(Dataset):
+class WidowGenerator(torch.utils.data.Dataset):
     def __init__(self, data: pl.DataFrame, params: dict):
+        super(WidowGenerator, self).__init__()
 
         self.inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_'}
         self.exo_inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_' and feature[-2:]!='_y'}
@@ -20,9 +21,9 @@ class TimeseriesDataset(Dataset):
         self.data = data.select(self.features.keys()).to_numpy()
         self.params = params
 
-        self.seq_len = params['dataloader']['sequence_length']
-        self.pred_hor = params['dataloader']['prediction_horizon']
-        self.win_len = params['dataloader']['sequence_length'] + params['dataloader']['prediction_horizon']
+        self.seq_len = params['sequence_length']
+        self.pred_hor = params['prediction_horizon']
+        self.win_len = params['sequence_length'] + params['prediction_horizon']
 
     def __len__(self):
         return len(self.data) - self.win_len + 1
@@ -36,6 +37,33 @@ class TimeseriesDataset(Dataset):
 
         return {'x':x, 'x_exo':x_exo, 'y':y}
 
+
+class DataLoader(torch.utils.data.DataLoader):
+    def __init__(self, data: pl.DataFrame, params: dict):
+        dataset = WidowGenerator(data, params['window'])
+        super(DataLoader, self).__init__(dataset, batch_size=params['batch_size'], shuffle=params['shuffle'])
+
+        sample_batched = next(iter(self))
+
+        logger.info(f"(x, x_eco, y)<#batch, #sequence, #features> = (<{sample_batched['x'].size()}>, <{sample_batched['x_exo'].size()}>, <{sample_batched['y'].size()}>)")
+
+        input_start = 0
+        input_end = input_start + params['window']['sequence_length']
+        input_data = data.select(dataset.inputs.keys())[input_start:input_end].to_numpy()
+
+        exo_input_start = params['window']['sequence_length']
+        exo_input_end = exo_input_start+params['window']['prediction_horizon']
+        exo_input_data = data.select(dataset.exo_inputs.keys())[exo_input_start:exo_input_end].to_numpy()
+
+        target_start = params['window']['sequence_length']
+        target_end = target_start+params['window']['prediction_horizon']
+        target_data = data.select(dataset.targets.keys())[target_start:target_end].to_numpy()
+
+        assert abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7, f'Validation valued for input data'
+        assert abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo input data'
+        assert abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7, f'Validation valued for target data'
+
+
 class SparkNet(nn.Module):
     def __init__( self, work_dir: str, params: dict):
         super().__init__()
@@ -43,7 +71,9 @@ class SparkNet(nn.Module):
         self.params = params
 
         self.load_data()
-        self.create_model()
+        self.model = self.create_model()
+
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
 
     def load_data(self):
 
@@ -69,41 +99,27 @@ class SparkNet(nn.Module):
         self.test_scl = pl.DataFrame(self.scaler.transform(self.test), self.data.schema)
         self.val_scl = pl.DataFrame(self.scaler.transform(self.val), self.data.schema)
 
+
+        self.train_dataloader = DataLoader(self.train_scl, self.params['dataloader'])
+        '''
         self.train_dataset = TimeseriesDataset(self.train_scl, self.params)
         self.train_dataloader = DataLoader(self.train_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
 
+        self.test_dataset = TimeseriesDataset(self.test_scl, self.params)
+        self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
 
-        def validate_dataloader():
-
-            for i_batch, sample_batched in enumerate(self.train_dataloader):
-                print(i_batch, sample_batched['x'].size(),sample_batched['x_exo'].size(), sample_batched['y'].size())
-
-                input_start = i_batch*self.params['dataloader']['batch_size']
-                input_end = i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']
-                input_data = self.train_scl.select(self.train_dataset.inputs.keys())[input_start:input_end].to_numpy()
-
-                if not abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7:
-                    logger.exception(f'Input data for {i_batch} does not validate true data')
-
-                exo_input_start = i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']
-                exo_input_end = exo_input_start+self.params['dataloader']['prediction_horizon']
-                exo_input_data = self.train_scl.select(self.train_dataset.exo_inputs.keys())[exo_input_start:exo_input_end].to_numpy()
-
-                if not abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7:
-                    logger.exception(f'Exo input data for {i_batch} does not validate true data')
-
-                target_start = i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']
-                target_end = target_start+self.params['dataloader']['prediction_horizon']
-                target_data = self.train_scl.select(self.train_dataset.targets.keys())[target_start:target_end].to_numpy()
-
-                if not abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7:
-                    logger.exception(f'Exo input data for {i_batch} does not validate true data')
-
-        validate_dataloader()
-        exit(1)
+        self.val_dataset = TimeseriesDataset(self.test_scl, self.params)
+        self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
+        '''
 
 
-    def crate_model(self):
+
+
+
+
+
+
+    def create_model(self):
         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(28*28, 512),
@@ -113,19 +129,23 @@ class SparkNet(nn.Module):
             nn.Linear(512, 10),
         )
 
+
+
     def forward(self, x):
         x = self.flatten(x)
         logits = self.linear_relu_stack(x)
         return logits
 
-    '''
+
+
     def train_model(self):
 
-        if self.train_loader is None:
+        if self.train_dataloader is None:
             ValueError("Dataset not defined!")
 
-        self.train()
-        for i, (x, exog, y) in enumerate(tqdm(self.train_loader, leave=False, desc="Training")):
-            pass
-    '''
+        for i, data in enumerate(tqdm(self.train_dataloader)):
+            x, x_exo, y = data.values()
+
+            self.optimizer.zero_grad()
+
 
