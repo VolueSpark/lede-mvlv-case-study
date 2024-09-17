@@ -72,10 +72,35 @@ class SparkNet(nn.Module):
         self.train_dataset = TimeseriesDataset(self.train_scl, self.params)
         self.train_dataloader = DataLoader(self.train_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
 
-        for i_batch, sample_batched in enumerate(self.train_dataloader):
-            print(i_batch, sample_batched['x'].size(),sample_batched['x_exo'].size(), sample_batched['y'].size())
 
-            assert abs(self.train_scl[i_batch*self.params['dataloader']['batch_size']:i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']].to_numpy() - sample_batched['x'][0].numpy()).max()<1e-7, f'Batch {i_batch} does not match with data source'
+        def validate_dataloader():
+
+            for i_batch, sample_batched in enumerate(self.train_dataloader):
+                print(i_batch, sample_batched['x'].size(),sample_batched['x_exo'].size(), sample_batched['y'].size())
+
+                input_start = i_batch*self.params['dataloader']['batch_size']
+                input_end = i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']
+                input_data = self.train_scl.select(self.train_dataset.inputs.keys())[input_start:input_end].to_numpy()
+
+                if not abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7:
+                    logger.exception(f'Input data for {i_batch} does not validate true data')
+
+                exo_input_start = i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']
+                exo_input_end = exo_input_start+self.params['dataloader']['prediction_horizon']
+                exo_input_data = self.train_scl.select(self.train_dataset.exo_inputs.keys())[exo_input_start:exo_input_end].to_numpy()
+
+                if not abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7:
+                    logger.exception(f'Exo input data for {i_batch} does not validate true data')
+
+                target_start = i_batch*self.params['dataloader']['batch_size']+self.params['dataloader']['sequence_length']
+                target_end = target_start+self.params['dataloader']['prediction_horizon']
+                target_data = self.train_scl.select(self.train_dataset.targets.keys())[target_start:target_end].to_numpy()
+
+                if not abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7:
+                    logger.exception(f'Exo input data for {i_batch} does not validate true data')
+
+        validate_dataloader()
+        exit(1)
 
 
     def crate_model(self):
