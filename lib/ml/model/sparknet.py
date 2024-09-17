@@ -1,4 +1,4 @@
-from sklearn.preprocessing import MinMaxScaler
+
 from torch import nn
 import polars as pl
 import os, torch
@@ -6,146 +6,53 @@ from tqdm import tqdm
 
 from lib import logger
 from lib.ml.dataloader import DataLoader
+from lib.ml.layer.resblock import ResBlock
 
-
-class WidowGenerator(torch.utils.data.Dataset):
-    def __init__(self, data: pl.DataFrame, params: dict):
-        super(WidowGenerator, self).__init__()
-
-        self.inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_'}
-        self.exo_inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_' and feature[-2:]!='_y'}
-        self.targets = {feature:i for i, feature in enumerate(data.columns) if feature[-2:]=='_y'}
-
-        self.features = dict(sorted((self.inputs | self.exo_inputs | self.targets).items(), key=lambda item: item[1], reverse=False))
-
-        self.data = data.select(self.features.keys()).to_numpy()
-        self.params = params
-
-        self.seq_len = params['sequence_length']
-        self.pred_hor = params['prediction_horizon']
-        self.win_len = params['sequence_length'] + params['prediction_horizon']
-
-    def __len__(self):
-        return len(self.data) - self.win_len + 1
-
-    def __getitem__(self, idx):
-        window = self.data[idx:idx + self.win_len]
-
-        x = torch.cat( [torch.tensor(window[0:self.seq_len, col_idx], dtype=torch.float32).unsqueeze(-1) for feature, col_idx in self.inputs.items()], dim=-1)
-        x_exo = torch.cat( [torch.tensor(window[self.seq_len:self.win_len, col_idx], dtype=torch.float32).unsqueeze(-1) for feature, col_idx in self.exo_inputs.items()], dim=-1)
-        y = torch.cat( [torch.tensor(window[self.seq_len:self.win_len, col_idx], dtype=torch.float32).unsqueeze(-1) for feature, col_idx in self.targets.items()], dim=-1)
-
-        return {'x':x, 'x_exo':x_exo, 'y':y}
-
-
-class DataLoader(torch.utils.data.DataLoader):
-    def __init__(self, data: pl.DataFrame, params: dict):
-        dataset = WidowGenerator(data, params['window'])
-        super(DataLoader, self).__init__(dataset, batch_size=params['batch_size'], shuffle=params['shuffle'])
-
-        sample_batched = next(iter(self))
-
-        logger.info(f"(x, x_eco, y)<#batch, #sequence, #features> = (<{sample_batched['x'].size()}>, <{sample_batched['x_exo'].size()}>, <{sample_batched['y'].size()}>)")
-
-        input_start = 0
-        input_end = input_start + params['window']['sequence_length']
-        input_data = data.select(dataset.inputs.keys())[input_start:input_end].to_numpy()
-
-        exo_input_start = params['window']['sequence_length']
-        exo_input_end = exo_input_start+params['window']['prediction_horizon']
-        exo_input_data = data.select(dataset.exo_inputs.keys())[exo_input_start:exo_input_end].to_numpy()
-
-        target_start = params['window']['sequence_length']
-        target_end = target_start+params['window']['prediction_horizon']
-        target_data = data.select(dataset.targets.keys())[target_start:target_end].to_numpy()
-
-        assert abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7, f'Validation valued for input data'
-        assert abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo input data'
-        assert abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7, f'Validation valued for target data'
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
 
 
 class SparkNet(nn.Module):
     def __init__( self, work_dir: str, params: dict):
+        logger.info(f"Instantiate deep neural network model {self.__class__.__name__} with work directory {work_dir} using device {device}")
         super().__init__()
+
+        self.device = device
         self.work_dir = work_dir
         self.params = params
 
-        self.load_data()
-        self.model = self.create_model()
+        self.resblockX = ResBlock(input_shape=(64, 40, 48))
+        self.resblockXexo = ResBlock(input_shape=(64, 30, 24))
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        self.loss_function = nn.HuberLoss(reduction='max')
 
-    def load_data(self):
+    def set_data(self, train_loader: DataLoader, test_loader: DataLoader, val_loader: DataLoader):
+        self.train_loader = train_loader
+        self.test_loader = test_loader
+        self.val_loader = val_loader
 
-        # purge non-features from dataframe
-        self.data = pl.read_parquet(os.path.join(self.work_dir, 'data/silver/data.parquet'))
-        self.date = self.data.select(pl.col(r'^t_.*$'))
-        self.data = self.data.drop(self.date.columns)
-
-        n = self.data.shape[0]
-        self.train = self.data[:int(n * self.params['split'][0])]
-        self.test = self.data[int(n * self.params['split'][1]):]
-        self.val = self.data[int(n * self.params['split'][0]):int(n * self.params['split'][1])]
-
-        logger.info(f"Split data on a training:validation:test ratio of "
-                    f"{int(n * self.params['split'][0])}:"
-                    f"{int(n * (self.params['split'][1] - self.params['split'][0]))}:"
-                    f"{int(n * (1 - self.params['split'][1]))}")
-
-        self.scaler = MinMaxScaler()
-        self.scaler.fit(self.train)
-
-        self.train_scl = pl.DataFrame(self.scaler.transform(self.train), self.data.schema)
-        self.test_scl = pl.DataFrame(self.scaler.transform(self.test), self.data.schema)
-        self.val_scl = pl.DataFrame(self.scaler.transform(self.val), self.data.schema)
-
-
-        self.train_dataloader = DataLoader(self.train_scl, self.params['dataloader'])
-        '''
-        self.train_dataset = TimeseriesDataset(self.train_scl, self.params)
-        self.train_dataloader = DataLoader(self.train_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
-
-        self.test_dataset = TimeseriesDataset(self.test_scl, self.params)
-        self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
-
-        self.val_dataset = TimeseriesDataset(self.test_scl, self.params)
-        self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.params['dataloader']['batch_size'], shuffle=False)
-        '''
-
-
-
-
-
-
-
-
-    def create_model(self):
-        self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(28*28, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 10),
-        )
-
-
-
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
-
-
+    def forward(self, x: torch.Tensor, x_exo: torch.Tensor)->torch.Tensor:
+        x = self.resblockX(x)
+        # TODO add a conv1d layer to reduce channels from 40 to 10 and maxpooling to reduce sequence from 48 to 24. Then contcat output to x_exo and linear layer, reshape 10 x 24 and then loss
+        x_exo = self.resblockXexo(x_exo)
+        return x
 
     def train_model(self):
+        self.train()
+        for epoch_i in tqdm(range(self.params['num_epochs']), desc='epoch interator'):
+            for batch_i, data in enumerate(tqdm(self.train_loader, desc='batch iterator')):
+                (x, x_exo, y) = data.values()
+                fx = self.forward(x=x, x_exo=x_exo)
 
-        if self.train_dataloader is None:
-            ValueError("Dataset not defined!")
 
-        for i, data in enumerate(tqdm(self.train_dataloader)):
-            x, x_exo, y = data.values()
 
-            self.optimizer.zero_grad()
+
+
+
 
 

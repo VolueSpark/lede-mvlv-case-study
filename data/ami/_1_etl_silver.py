@@ -19,7 +19,8 @@ def process_batch(**kwargs) -> str:
         df = (
             pl.scan_parquet(os.path.join(BRONZE_MEAS_PATH, meter_id))
             .with_columns(pl.col('value_dt').dt.replace_time_zone(None))
-            .drop_nulls()
+            .fill_nan(0)
+            .fill_null(0)
             .unique(subset=['value_dt','meter_id'])
             .sort(by='value_dt', descending=False)
         ).collect()

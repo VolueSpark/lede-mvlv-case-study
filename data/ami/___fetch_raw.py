@@ -8,7 +8,7 @@ RAW_PATH = os.path.join(PATH, 'raw')
 RAW_PRED_PATH = os.path.join(RAW_PATH, 'pred')
 RAW_MEAS_PATH = os.path.join(RAW_PATH, 'meas')
 
-FROM_DATE = datetime(year=2023,month=8,day=28)
+FROM_DATE = datetime(year=2022,month=1,day=1)
 TO_DATE = datetime(year=2024,month=8,day=28)
 
 

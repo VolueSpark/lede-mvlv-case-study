@@ -10,6 +10,6 @@ if __name__ == "__main__":
     model = Ml(
         uuid=UUID,
         work_dir=WORK_PATH
-    ).create_model
+    ).create
 
     model.train_model()

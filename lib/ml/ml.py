@@ -1,9 +1,11 @@
+from sklearn.preprocessing import MinMaxScaler
 import json, os, yaml, torch, re, json
 from typing import List, Tuple
 import numpy as np
 import polars as pl
 
 from lib import logger
+from lib.ml.dataloader import DataLoader
 from lib.price.insight import fetch_hist_spot
 from lib.price.valuta import fetch_hist_valuta
 from lib.weather.weather import fetch_hist_weather
@@ -12,6 +14,7 @@ PATH = os.path.dirname(__file__)
 
 with open(os.path.join(PATH,'config.yaml')) as fp:
     config = yaml.safe_load(fp)
+
 
 class Ml:
 
@@ -126,18 +129,54 @@ class Ml:
 
 
     @property
-    def create_model(self):
+    def create(self):
         model_class = config['ml']['variant']
         library_path = f"lib.ml.model.{model_class.lower()}"
         Network = __import__(library_path, fromlist=[model_class])
 
         logger.info(f"Loading {model_class} model at working direction {self.path}")
 
-        return getattr(Network, model_class)(
+        model = getattr(Network, model_class)(
             work_dir=self.path,
             params=config['params'][model_class.lower()]
         )
+        train_loader, test_loader, val_loader = self.load_data(
+            data_path=os.path.join(self.silver_data_path, 'data.parquet'),
+            params=config['params'][model_class.lower()]
+        )
+        model.set_data(
+            train_loader=train_loader,
+            test_loader=test_loader,
+            val_loader=val_loader
+        )
+        return model
 
+    def load_data(self, data_path: str, params: dict):
+        # purge non-features from dataframe
+        data = pl.read_parquet(data_path).drop('t_timestamp')
+
+        n = data.shape[0]
+        train = data[:int(n * params['split'][0])]
+        test = data[int(n * params['split'][1]):]
+        val = data[int(n * params['split'][0]):int(n * params['split'][1])]
+
+        logger.info(f"Split data on a training:validation:test ratio of "
+                    f"{int(n * params['split'][0])}:"
+                    f"{int(n * (params['split'][1] - params['split'][0]))}:"
+                    f"{int(n * (1 - params['split'][1]))}")
+
+        scaler = MinMaxScaler()
+        scaler.fit(train)
+
+        train_scaled = pl.DataFrame(scaler.transform(train), data.schema)
+        test_scaled = pl.DataFrame(scaler.transform(test), data.schema)
+        val_scaled = pl.DataFrame(scaler.transform(val), data.schema)
+
+        train_loader = DataLoader( train_scaled, params=params['dataloader'], name='train')
+        test_loader = DataLoader( test_scaled , params=params['dataloader'], name='test')
+        val_loader = DataLoader(val_scaled, params=params['dataloader'], name='val')
+
+        return train_loader, test_loader, val_loader
 
 
 
