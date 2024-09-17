@@ -20,3 +20,4 @@ torch==2.4.1
 PyYAML==6.0.2
 wapi-python==0.7.15
 shapely==2.0.6
+tqdm==4.66.5

@@ -1,5 +1,25 @@
 {
-  path: {
-
-  }
+  data:
+    {
+      meter: /home/phillip/repo/volue.spark/lede-mvlv-case-study/data/ami/silver/meas,
+      topology: /home/phillip/repo/volue.spark/lede-mvlv-case-study/data/topology/silver/lv,
+      geojson: /home/phillip/repo/volue.spark/lede-mvlv-case-study/data/geojson/silver
+    },
+  ml: {
+        force_clean: True,
+        variant: SparkNet,
+  },
+  params:
+    {
+      sparknet:
+        {
+          split: [0.8, 0.9],
+          dataloader:
+            {
+              prediction_horizon: 24,
+              sequence_length: 48,
+              batch_size: 64
+            }
+        }
+    }
 }
