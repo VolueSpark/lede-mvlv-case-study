@@ -1,10 +1,10 @@
+import os, json, requests, math
 from datetime import datetime
 from matplotlib import colors
 from lib.lfa.lfa import Lfa
-import polars as pl
-import os, json, requests, math
-from typing import Tuple, List
+from typing import Tuple
 import pandapower as pp
+import polars as pl
 
 from lib import logger
 
@@ -213,7 +213,12 @@ class FlexAssets:
         if not os.path.exists(os.path.join(self.flex_assets_path, f"{name.split('.')[0]}.png")):
             fig.savefig(os.path.join(self.flex_assets_path, f"{name.split('.')[0]}.png"), dpi=300)
 
-def run_backend(from_date: datetime, to_date, lfa: Lfa, flex: FlexAssets):
+
+def run_flexibility(lfa: Lfa, flex: FlexAssets):
+
+    from_date= datetime(2024, 1, 3, 0, 0)
+    to_date=datetime(2024, 1, 7, 0, 0)
+
     name = f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet'
 
     if not os.path.exists(os.path.join(flex.flex_assets_path, name)):
@@ -240,12 +245,18 @@ def run_backend(from_date: datetime, to_date, lfa: Lfa, flex: FlexAssets):
     flex.plot(f'flex_{from_date.isoformat()}-{to_date.isoformat()}.parquet')
 
 
-def run_frontend(from_date: datetime, to_date, lfa: Lfa, flex: FlexAssets):
+#
+# run backend LFA engine with date resolution defined by step_every
+#
+def run_demonstrator(lfa: Lfa, step_every:int=1 ):
+
+    from_date=datetime(2024, 1, 1, 0, 0)
+    to_date=datetime(2024, 3, 1, 0, 0)
 
     for (date, lfa_result) in lfa.run_lfa(
             from_date=from_date,
             to_date=to_date,
-            step_every=8,
+            step_every=step_every,
     ):
         front_end_update(
             date=date,
@@ -268,19 +279,8 @@ if __name__ == "__main__":
         flex_assets_path=FLEX_ASSETS_PATH
     )
 
-    #run_backend(
-    #    from_date=datetime(2024, 1, 3, 0, 0),
-    #    to_date=datetime(2024, 1, 7, 0, 0),
-    #    lfa=lfa,
-    #    flex=flex
-    #)
-
-    run_frontend(
-        from_date=datetime(2024, 1, 1, 0, 0),
-        to_date=datetime(2024, 3, 1, 0, 0),
-        lfa=lfa,
-        flex=flex
-    )
+    #run_flexibility(lfa=lfa, flex=flex)
+    run_demonstrator(lfa=lfa, step_every=8)
 
 
 
