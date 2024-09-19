@@ -127,30 +127,6 @@ class Ml:
             if bool(re.match(r'^.*(\d{18})$', feature)) else f'X_{feature}') for i, feature in enumerate(data.columns)})
              .write_parquet(os.path.join(self.silver_data_path, 'data.parquet')))
 
-
-    @property
-    def create(self):
-        model_class = config['ml']['variant']
-        library_path = f"lib.ml.model.{model_class.lower()}"
-        Network = __import__(library_path, fromlist=[model_class])
-
-        logger.info(f"Loading {model_class} model at working direction {self.path}")
-
-        model = getattr(Network, model_class)(
-            work_dir=self.path,
-            params=config['params'][model_class.lower()]
-        )
-        train_loader, test_loader, val_loader = self.load_data(
-            data_path=os.path.join(self.silver_data_path, 'data.parquet'),
-            params=config['params'][model_class.lower()]
-        )
-        model.set_data(
-            train_loader=train_loader,
-            test_loader=test_loader,
-            val_loader=val_loader
-        )
-        return model
-
     def load_data(self, data_path: str, params: dict):
         # purge non-features from dataframe
         data = pl.read_parquet(data_path).drop('t_timestamp')
@@ -177,6 +153,29 @@ class Ml:
         val_loader = DataLoader(val_scaled, params=params['dataloader'], name='val')
 
         return train_loader, test_loader, val_loader
+
+    @property
+    def create(self):
+        model_class = config['ml']['variant']
+        library_path = f"lib.ml.model.{model_class.lower()}"
+        Network = __import__(library_path, fromlist=[model_class])
+
+        logger.info(f"Loading {model_class} model at working direction {self.path}")
+
+        train_loader, test_loader, val_loader = self.load_data(
+            data_path=os.path.join(self.silver_data_path, 'data.parquet'),
+            params=config['params'][model_class.lower()]
+        )
+
+        return getattr(Network, model_class)(
+            work_dir=self.path,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            val_loader=val_loader,
+            params=config['params'][model_class.lower()],
+        )
+
+
 
 
 

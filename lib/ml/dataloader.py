@@ -46,10 +46,6 @@ class DataLoader(torch.utils.data.DataLoader):
         dataset = WidowGenerator(data, params['window'])
         super(DataLoader, self).__init__(dataset, batch_size=params['batch_size'], shuffle=params['shuffle'])
 
-        sample_batched = next(iter(self))
-
-        logger.info(f"{name} ({data.shape[0]} samples): (name:[#batch, #channels, #sequence]) = (x:[{sample_batched['x'].size()}], x_exo[{sample_batched['x_exo'].size()}], y:[{sample_batched['y'].size()}])")
-
         input_start = 0
         input_end = input_start + params['window']['input_width']
         input_data = data.select(dataset.inputs.keys())[input_start:input_end].to_numpy().transpose()
@@ -62,6 +58,11 @@ class DataLoader(torch.utils.data.DataLoader):
         target_end = target_start+params['window']['label_width']
         target_data = data.select(dataset.targets.keys())[target_start:target_end].to_numpy().transpose()
 
+        sample_batched = next(iter(self))
+
         assert abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7, f'Validation valued for input data'
         assert abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo input data'
         assert abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7, f'Validation valued for target data'
+
+        logger.info(f"({data.shape[0]} {name} samples): (name:[#batch, #channels, #sequence]) = (x:[{sample_batched['x'].size()}], x_exo[{sample_batched['x_exo'].size()}], y:[{sample_batched['y'].size()}])")
+
