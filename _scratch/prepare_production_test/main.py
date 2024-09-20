@@ -10,8 +10,8 @@ from lib import logger
 METER_SILVER_PATH = os.path.join(PATH, '../../data/ami/silver/meas')
 TOPOLOGY_RAW_PATH = os.path.join(PATH, '../../data/topology/raw/topology')
 
-TOPOLOGY_ID = 'fe7db2db-ec48-506c-b342-19c1dd2444ab'
-SCENARIO_CNT = 100
+TOPOLOGY_ID = ['fe7db2db-ec48-506c-b342-19c1dd2444ab', 'aaef8b14-7ba6-5a09-8ee2-4629857ae952', 'abcc64e4-bb50-58a3-b5b7-cff746d1856f']
+SCENARIO_CNT = 10
 
 time_format = '%Y-%m-%dT%H:%M:%S'
 
@@ -62,7 +62,7 @@ def build_scenario(data: pl.DataFrame, topology_data: dict,  scenario_cnt:int) -
     for t in production_extremum_points:
 
         load = []
-        switch = []
+
         for row in data.filter(pl.col('datetime') == t).iter_rows(named=True):
             load.append(
                 {
@@ -71,9 +71,19 @@ def build_scenario(data: pl.DataFrame, topology_data: dict,  scenario_cnt:int) -
                     'qKvar': row['q_kvar'],
                 }
             )
+
+        switch = []
+        for s in topology_data['switches']:
+            switch.append(
+                {
+                    'mrid': s['mrid'],
+                    'isOpen': s['isOpen']
+                }
+            )
+
         scenario.append(
             {
-                'desc': 'grid export extremum (solar case)',
+                'desc': 'grid import extremum (solar case)',
                 'timestamp': t.strftime(time_format),
                 'load': load,
                 'switch':switch
@@ -84,7 +94,7 @@ def build_scenario(data: pl.DataFrame, topology_data: dict,  scenario_cnt:int) -
     for t in consumption_extremum_points:
 
         load = []
-        switch = []
+
         for row in data.filter(pl.col('datetime') == t).iter_rows(named=True):
             load.append(
                 {
@@ -93,9 +103,19 @@ def build_scenario(data: pl.DataFrame, topology_data: dict,  scenario_cnt:int) -
                     'qKvar': row['q_kvar'],
                 }
             )
+
+        switch = []
+        for s in topology_data['switches']:
+            switch.append(
+                {
+                    'mrid': s['mrid'],
+                    'isOpen': s['isOpen']
+                }
+            )
+
         scenario.append(
             {
-                'desc': 'grid import extremum (peak load)',
+                'desc': 'grid export extremum (peak load)',
                 'timestamp': t.strftime(time_format),
                 'load': load,
                 'switch':switch
@@ -121,27 +141,29 @@ def get_meter_data(meter_list: List[str]) -> pl.DataFrame:
 
 if __name__ == "__main__":
 
-    topology_path = os.path.join(TOPOLOGY_RAW_PATH, TOPOLOGY_ID)
+    for topology_id in TOPOLOGY_ID:
 
-    with open(topology_path, 'r') as fp:
-        topology_data = json.load(fp)
+        topology_path = os.path.join(TOPOLOGY_RAW_PATH, topology_id)
 
-    meter_list =[up['meterPointId'] for up in topology_data['usagePoints']]
+        with open(topology_path, 'r') as fp:
+            topology_data = json.load(fp)
 
-    meter_data = get_meter_data(
-        meter_list=meter_list
-    )
+        meter_list =[up['meterPointId'] for up in topology_data['usagePoints']]
 
-    scenario = build_scenario(
-        data=meter_data,
-        topology_data=topology_data,
-        scenario_cnt=SCENARIO_CNT
-    )
+        meter_data = get_meter_data(
+            meter_list=meter_list
+        )
 
-    scenario_payload = {
-        'topology':topology_data,
-        'scenario':scenario,
-    }
+        scenario = build_scenario(
+            data=meter_data,
+            topology_data=topology_data,
+            scenario_cnt=SCENARIO_CNT
+        )
 
-    with open(os.path.join(PATH, f'{TOPOLOGY_ID}.json'), 'w') as fp:
-        json.dump(scenario_payload, fp, default=json_serial)
+        scenario_payload = {
+            'topology':topology_data,
+            'scenario':scenario,
+        }
+
+        with open(os.path.join(PATH, f'{topology_id}.json'), 'w') as fp:
+            json.dump(scenario_payload, fp, default=json_serial)

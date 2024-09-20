@@ -1,8 +1,12 @@
+from torch.utils.tensorboard import SummaryWriter
 from sklearn.preprocessing import MinMaxScaler
-import json, os, yaml, torch, re, json
-from typing import List, Tuple
-import numpy as np
+import os, yaml, torch, re, json, socket
+from datetime import datetime
+from typing import Tuple
+from tqdm import tqdm
+from torch import nn
 import polars as pl
+import numpy as np
 
 from lib import logger
 from lib.ml.dataloader import DataLoader
@@ -15,7 +19,6 @@ PATH = os.path.dirname(__file__)
 with open(os.path.join(PATH,'config.yaml')) as fp:
     config = yaml.safe_load(fp)
 
-
 class Ml:
 
     def __init__(
@@ -26,14 +29,19 @@ class Ml:
         self.name = uuid
         self.path = os.path.join(work_dir, uuid)
 
+        self.log_dir = os.path.join(work_dir, f'runs/{uuid}/{datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}_{socket.gethostname()}')
         self.bronze_data_path = os.path.join(self.path, 'data/bronze')
         self.silver_data_path = os.path.join(self.path, 'data/silver')
 
+        os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.bronze_data_path, exist_ok=True)
         os.makedirs(self.silver_data_path, exist_ok=True)
 
         self.prepare_bronze_data()
         self.prepare_silver_data()
+
+        self.writer = SummaryWriter(log_dir=self.log_dir)
+
 
     def prepare_bronze_data(self):
 
@@ -154,7 +162,6 @@ class Ml:
 
         return train_loader, test_loader, val_loader
 
-    @property
     def create(self):
         model_class = config['ml']['variant']
         library_path = f"lib.ml.model.{model_class.lower()}"
@@ -162,18 +169,95 @@ class Ml:
 
         logger.info(f"Loading {model_class} model at working direction {self.path}")
 
-        train_loader, test_loader, val_loader = self.load_data(
+        self.params = config['params'][model_class.lower()]
+
+        self.train_loader, self.test_loader, self.val_loader = self.load_data(
             data_path=os.path.join(self.silver_data_path, 'data.parquet'),
-            params=config['params'][model_class.lower()]
+            params=self.params
         )
 
-        return getattr(Network, model_class)(
+        self.model = getattr(Network, model_class)(
             work_dir=self.path,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            val_loader=val_loader,
-            params=config['params'][model_class.lower()],
+            inputs_shape=self.train_loader.inputs_shape,
+            inputs_exo_shape=self.train_loader.inputs_exo_shape,
+            targets_shape = self.train_loader.targets_shape
         )
+
+        self.loss_fn = nn.HuberLoss(reduction='mean')
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params['learning_rate'])
+
+    def train_one_epoch(self, epoch_index):
+        running_loss = 0.
+        last_loss = 0.
+
+        for batch_i, data in enumerate(tqdm(self.train_loader, desc='train batch iterator')):
+            (inputs, inputs_exo, targets) = data.values()
+            
+            self.optimizer.zero_grad()
+
+            outputs = self.model.forward(
+                inputs=inputs,
+                inputs_exo=inputs_exo
+            )
+
+            loss = self.loss_fn(outputs, targets)
+            loss.backward()
+
+            self.optimizer.step()
+
+            running_loss += loss.item()
+            if batch_i % 10 == 9:
+                last_loss = running_loss / 10 # loss per batch
+                print('  batch {} loss: {}'.format(batch_i + 1, last_loss))
+                tb_x = epoch_index * len(self.train_loader) + batch_i + 1
+                self.writer.add_scalar('Loss/train', last_loss, tb_x)
+                running_loss = 0.
+
+        return last_loss
+            
+
+    def train(self):
+
+        best_vloss = 1_000_000.
+
+        for epoch_i in tqdm(range(self.params['num_epochs']), desc='training epoch iterator'):
+            
+            self.model.train()
+            avg_loss = self.train_one_epoch(epoch_i)
+
+            running_vloss = 0.0
+
+            self.model.eval()
+
+            with torch.no_grad():
+                for i, vdata in enumerate(tqdm(self.val_loader, desc='validation batch iterator')):
+                    (vinputs, vinputs_exo, vlabels) = vdata.values()
+                    voutputs = self.model(vinputs)
+                    vloss = self.loss_fn(voutputs, vlabels)
+                    running_vloss += vloss
+
+            avg_vloss = running_vloss / (i + 1)
+            logger.info('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
+
+            self.writer.add_scalars('Training vs. Validation Loss',
+                               { 'Training' : avg_loss, 'Validation' : avg_vloss },
+                                    epoch_i + 1)
+            self.writer.flush()
+
+            if avg_vloss < best_vloss:
+                best_vloss = avg_vloss
+                #model_path = 'model_{}_{}'.format(timestamp, epoch_i)
+                #torch.save(self.model.state_dict(), model_path)
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -8,12 +8,12 @@ class WidowGenerator(torch.utils.data.Dataset):
         super(WidowGenerator, self).__init__()
 
         self.inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_'}
-        self.exo_inputs = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_' and feature[-2:]!='_y'}
+        self.inputs_exo = {feature:i for i, feature in enumerate(data.columns) if feature[0:2]=='X_' and feature[-2:]!='_y'}
         self.targets = {feature:i for i, feature in enumerate(data.columns) if feature[-2:]=='_y'}
 
-        self.features = dict(sorted((self.inputs | self.exo_inputs | self.targets).items(), key=lambda item: item[1], reverse=False))
+        self.feature = dict(sorted((self.inputs | self.inputs_exo | self.targets).items(), key=lambda item: item[1], reverse=False))
 
-        self.data = data.select(self.features.keys()).to_numpy()
+        self.data = data.select(self.feature.keys()).to_numpy()
         self.params = params
 
         self.input_width = params['input_width']
@@ -26,19 +26,21 @@ class WidowGenerator(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         window = self.data[idx:idx + self.total_window_legnth]
 
-        x = torch.cat([torch.tensor(window[0:self.input_width, col_idx], dtype=torch.float32).unsqueeze(-1)
+        inputs = torch.cat([torch.tensor(window[0:self.input_width, col_idx], dtype=torch.float32).unsqueeze(-1)
                        for feature, col_idx in self.inputs.items()],
                       dim=-1
                       ).transpose(0,1)
-        x_exo = torch.cat([torch.tensor(window[self.input_width:self.total_window_legnth, col_idx], dtype=torch.float32).unsqueeze(-1)
-                           for feature, col_idx in self.exo_inputs.items()],
+        inputs_exo = torch.cat([torch.tensor(window[self.input_width:self.total_window_legnth, col_idx], dtype=torch.float32).unsqueeze(-1)
+                           for feature, col_idx in self.inputs_exo.items()],
                           dim=-1
                           ).transpose(0,1)
-        y = torch.cat([torch.tensor(window[self.input_width:self.total_window_legnth, col_idx], dtype=torch.float32).unsqueeze(-1)
+        targets = torch.cat([torch.tensor(window[self.input_width:self.total_window_legnth, col_idx], dtype=torch.float32).unsqueeze(-1)
                        for feature, col_idx in self.targets.items()],
                       dim=-1
                       ).transpose(0,1)
-        return {'x':x, 'x_exo':x_exo, 'y':y}
+        return {'inputs':inputs,
+                'inputs_exo':inputs_exo,
+                'targets':targets}
 
 
 class DataLoader(torch.utils.data.DataLoader):
@@ -46,23 +48,27 @@ class DataLoader(torch.utils.data.DataLoader):
         dataset = WidowGenerator(data, params['window'])
         super(DataLoader, self).__init__(dataset, batch_size=params['batch_size'], shuffle=params['shuffle'])
 
-        input_start = 0
-        input_end = input_start + params['window']['input_width']
-        input_data = data.select(dataset.inputs.keys())[input_start:input_end].to_numpy().transpose()
+        inputs_start = 0
+        inputs_end = inputs_start + params['window']['input_width']
+        inputs_data = data.select(dataset.inputs.keys())[inputs_start:inputs_end].to_numpy().transpose()
 
-        exo_input_start = params['window']['input_width']
-        exo_input_end = exo_input_start+params['window']['label_width']
-        exo_input_data = data.select(dataset.exo_inputs.keys())[exo_input_start:exo_input_end].to_numpy().transpose()
+        inputs_exo_start = params['window']['input_width']
+        inputs_exo_end = inputs_exo_start+params['window']['label_width']
+        inputs_exo_data = data.select(dataset.inputs_exo.keys())[inputs_exo_start:inputs_exo_end].to_numpy().transpose()
 
-        target_start = params['window']['input_width']
-        target_end = target_start+params['window']['label_width']
-        target_data = data.select(dataset.targets.keys())[target_start:target_end].to_numpy().transpose()
+        targets_start = params['window']['input_width']
+        targets_end = targets_start+params['window']['label_width']
+        targets_data = data.select(dataset.targets.keys())[targets_start:targets_end].to_numpy().transpose()
 
         sample_batched = next(iter(self))
 
-        assert abs(input_data - sample_batched['x'][0].numpy()).max()<1e-7, f'Validation valued for input data'
-        assert abs(exo_input_data - sample_batched['x_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo input data'
-        assert abs(target_data - sample_batched['y'][0].numpy()).max()<1e-7, f'Validation valued for target data'
+        assert abs(inputs_data - sample_batched['inputs'][0].numpy()).max()<1e-7, f'Validation valued for inputs data'
+        assert abs(inputs_exo_data - sample_batched['inputs_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo inputs data'
+        assert abs(targets_data - sample_batched['targets'][0].numpy()).max()<1e-7, f'Validation valued for targets data'
 
-        logger.info(f"({data.shape[0]} {name} samples): (name:[#batch, #channels, #sequence]) = (x:[{sample_batched['x'].size()}], x_exo[{sample_batched['x_exo'].size()}], y:[{sample_batched['y'].size()}])")
+        self.inputs_shape = sample_batched['inputs'].size()
+        self.inputs_exo_shape = sample_batched['inputs_exo'].size()
+        self.targets_shape = sample_batched['targets'].size()
+
+        logger.info(f"({data.shape[0]} {name} samples): (group:[#batch, #channels, #sequence]) = (x:[{self.inputs_shape}], x_exo[{self.inputs_exo_shape}], y:[{self.targets_shape}])")
 
