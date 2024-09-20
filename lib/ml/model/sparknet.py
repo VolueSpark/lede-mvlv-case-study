@@ -3,7 +3,9 @@ from torch import nn
 import torch
 
 from lib import logger
+from lib.ml.layer.mlp import MultiLayerPerceptron
 from lib.ml.layer.casualresidual import CasualResidual
+from lib.ml.layer.casualdownsample import CasualDownSample
 
 device = (
     "cuda"
@@ -29,8 +31,32 @@ class SparkNet(nn.Module):
         self.device = device
         self.work_dir = work_dir
 
-        self.casual_residual_x = CasualResidual(inputs_shape=inputs_shape)
-        self.casual_residual_x_exo = CasualResidual(inputs_shape=inputs_exo_shape)
+        self.conv1dres_1 = CasualResidual(
+            inputs_shape=inputs_shape
+        )
+
+        self.conv1dsample_1 = CasualDownSample(
+            in_channels=inputs_shape[1],
+            out_channels=targets_shape[1],
+            in_sequence=inputs_shape[2],
+            out_sequence=targets_shape[2],
+        )
+
+        self.conv1dres_2 = CasualResidual(
+            inputs_shape=inputs_exo_shape
+        )
+
+        self.conv1dsample_2 = CasualDownSample(
+            in_channels=inputs_shape[1],
+            out_channels=targets_shape[1],
+            in_sequence=targets_shape[2],
+            out_sequence=targets_shape[2],
+        )
+
+        self.mlp = MultiLayerPerceptron(
+            hidden_layers=[(targets_shape[1]*targets_shape[2], 100), (100, targets_shape[1]*targets_shape[2])],
+            output_shape=(targets_shape[1], targets_shape[2]),
+        )
 
 
     def forward(
@@ -39,10 +65,15 @@ class SparkNet(nn.Module):
             inputs_exo: torch.Tensor
     )->torch.Tensor:
 
-        outputs = self.casual_residual_x(inputs)
-        # TODO add a conv1d layer to reduce channels from 40 to 10 and maxpooling to reduce sequence from 48 to 24. Then contcat output to x_exo and linear layer, reshape 10 x 24 and then loss
-        outputs_exo = self.casual_residual_x_exo(inputs_exo)
-        return 0
+        out_1 = self.conv1dres_1(inputs)
+        out_2 = self.conv1dsample_1(out_1)
+        out_3 = self.conv1dres_2(inputs_exo)
+        out_4 = torch.cat((out_2, out_3), dim=1)
+        out_5 = self.conv1dsample_2(out_4)
+        out_6 =self.mlp(out_5)
+
+        return out_6
+
 
 
 
