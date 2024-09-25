@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000
 const mode = process.env.NODE_ENV
 
 // connect to database
-connectDB();
+// connectDB();
 
 const app = express();
 const wss = new WebSocket.Server({ port: 5100 });

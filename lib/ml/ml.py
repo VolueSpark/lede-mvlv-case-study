@@ -190,9 +190,10 @@ class Ml:
         running_loss = 0.
         last_loss = 0.
 
-        for batch_i, data in enumerate(tqdm(self.train_loader, desc='train batch iterator')):
+        for batch_i, data in enumerate(self.train_loader):
+
             (inputs, inputs_exo, targets) = data.values()
-            
+
             self.optimizer.zero_grad()
 
             outputs = self.model.forward(
@@ -208,10 +209,10 @@ class Ml:
             running_loss += loss.item()
             if batch_i % 10 == 9:
                 last_loss = running_loss / 10 # loss per batch
-                print('  batch {} loss: {}'.format(batch_i + 1, last_loss))
                 tb_x = epoch_index * len(self.train_loader) + batch_i + 1
                 self.writer.add_scalar('Loss/train', last_loss, tb_x)
                 running_loss = 0.
+                logger.info(f"[{batch_i + 1}] LOSS: Train {last_loss:.4f}")
 
         return last_loss
             
@@ -220,24 +221,23 @@ class Ml:
 
         best_vloss = 1_000_000.
 
-        for epoch_i in tqdm(range(self.params['num_epochs']), desc='training epoch iterator'):
-            
+        for epoch_i in range(self.params['num_epochs']):
+
             self.model.train()
             avg_loss = self.train_one_epoch(epoch_i)
 
             running_vloss = 0.0
-
             self.model.eval()
 
             with torch.no_grad():
-                for i, vdata in enumerate(tqdm(self.val_loader, desc='validation batch iterator')):
+                for i, vdata in enumerate(self.val_loader):
                     (vinputs, vinputs_exo, vlabels) = vdata.values()
-                    voutputs = self.model(vinputs)
+                    voutputs = self.model(vinputs, vinputs_exo)
                     vloss = self.loss_fn(voutputs, vlabels)
                     running_vloss += vloss
+                    logger.info(f"[{i}] LOSS: Train {avg_loss:.4f}; Validation {vloss:.4f}")
 
             avg_vloss = running_vloss / (i + 1)
-            logger.info('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
 
             self.writer.add_scalars('Training vs. Validation Loss',
                                { 'Training' : avg_loss, 'Validation' : avg_vloss },
@@ -248,6 +248,7 @@ class Ml:
                 best_vloss = avg_vloss
                 #model_path = 'model_{}_{}'.format(timestamp, epoch_i)
                 #torch.save(self.model.state_dict(), model_path)
+
 
 
 

@@ -21,7 +21,7 @@ class WidowGenerator(torch.utils.data.Dataset):
         self.total_window_legnth = params['input_width'] + params['label_width']
 
     def __len__(self):
-        return len(self.data)
+        return len(self.data) - self.total_window_legnth +1
 
     def __getitem__(self, idx):
         window = self.data[idx:idx + self.total_window_legnth]
@@ -44,9 +44,14 @@ class WidowGenerator(torch.utils.data.Dataset):
 
 
 class DataLoader(torch.utils.data.DataLoader):
-    def __init__(self, data: pl.DataFrame, params: dict, name='Loader'):
+    def __init__(self, data: pl.DataFrame, params: dict, name:str= 'Loader', drop_last:bool=True):
         dataset = WidowGenerator(data, params['window'])
-        super(DataLoader, self).__init__(dataset, batch_size=params['batch_size'], shuffle=params['shuffle'])
+        super(DataLoader, self).__init__(
+            dataset,
+            batch_size=params['batch_size'],
+            shuffle=params['shuffle'],
+            drop_last=drop_last
+        )
 
         inputs_start = 0
         inputs_end = inputs_start + params['window']['input_width']

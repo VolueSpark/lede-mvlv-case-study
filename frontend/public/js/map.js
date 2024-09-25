@@ -63,10 +63,10 @@ function loadGrid() {
         'filter': ['==', ['get', 'objecttype'], 'ConformLoad'],
         'layout': {
             'icon-image': 'load', // Replace with the Maki icon name from Mapbox
-            'icon-size': 0.8, // Adjust icon size if needed
+            'icon-size': 1, // Adjust icon size if needed
             'icon-allow-overlap': false, // Allow icons to overlap
             'text-field': ['get', 'name'], // Fetch the text from the 'name' property in the GeoJSON
-            'text-size': 12, // Adjust the text size (values like 2 are too small)
+            'text-size': 14, // Adjust the text size (values like 2 are too small)
             'text-offset': [0, 1.2], // Offset the text above the icon
             'text-anchor': 'top', // Position text above the icon
         },
@@ -82,9 +82,9 @@ function loadGrid() {
         'filter': ['==', ['get', 'objecttype'], 'PowerTransformer'],
         'layout': {
             'icon-image': 'substation', // Replace with the Maki icon name from Mapbox
-            'icon-size': 1.2, // Adjust icon size if needed
+            'icon-size': 1.5, // Adjust icon size if needed
             'icon-allow-overlap': true, // Allow icons to overlap
-            'text-size': 14, // Adjust the text size (values like 2 are too small)
+            'text-size': 18, // Adjust the text size (values like 2 are too small)
             'text-offset': [0, 1.2], // Offset the text above the icon
             'text-anchor': 'top' // Position text above the icon
         },
