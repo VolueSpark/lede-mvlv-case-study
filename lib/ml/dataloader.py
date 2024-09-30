@@ -37,10 +37,13 @@ class WidowGenerator(torch.utils.data.Dataset):
         targets = torch.cat([torch.tensor(window[self.input_width:self.total_window_legnth, col_idx], dtype=torch.float32).unsqueeze(-1)
                        for feature, col_idx in self.targets.items()],
                       dim=-1
-                      ).transpose(0,1)
-        return {'inputs':inputs,
-                'inputs_exo':inputs_exo,
-                'targets':targets}
+                            ).transpose(0, 1)
+        return {
+            'idx': idx,               # data shuffle index
+            'inputs': inputs,         # features inputs based on historical data
+            'inputs_exo': inputs_exo, # feature inputs based on exogenous forecast data
+            'targets': targets        # targt labels
+        }
 
 
 class DataLoader(torch.utils.data.DataLoader):
@@ -53,19 +56,20 @@ class DataLoader(torch.utils.data.DataLoader):
             drop_last=drop_last
         )
 
-        inputs_start = 0
+        sample_batched = next(iter(self))
+        idx = sample_batched['idx'][0].numpy().flat[0]
+
+        inputs_start = idx
         inputs_end = inputs_start + params['window']['input_width']
         inputs_data = data.select(dataset.inputs.keys())[inputs_start:inputs_end].to_numpy().transpose()
 
-        inputs_exo_start = params['window']['input_width']
+        inputs_exo_start = idx + params['window']['input_width']
         inputs_exo_end = inputs_exo_start+params['window']['label_width']
         inputs_exo_data = data.select(dataset.inputs_exo.keys())[inputs_exo_start:inputs_exo_end].to_numpy().transpose()
 
-        targets_start = params['window']['input_width']
+        targets_start = idx + params['window']['input_width']
         targets_end = targets_start+params['window']['label_width']
         targets_data = data.select(dataset.targets.keys())[targets_start:targets_end].to_numpy().transpose()
-
-        sample_batched = next(iter(self))
 
         assert abs(inputs_data - sample_batched['inputs'][0].numpy()).max()<1e-7, f'Validation valued for inputs data'
         assert abs(inputs_exo_data - sample_batched['inputs_exo'][0].numpy()).max()<1e-7, f'Validation valued for exo inputs data'
@@ -74,6 +78,8 @@ class DataLoader(torch.utils.data.DataLoader):
         self.inputs_shape = sample_batched['inputs'].size()
         self.inputs_exo_shape = sample_batched['inputs_exo'].size()
         self.targets_shape = sample_batched['targets'].size()
+
+        self.iter_cnt = len([1 for _ in next(iter(self))])
 
         logger.info(f"({data.shape[0]} {name} samples): (group:[#batch, #channels, #sequence]) = (x:[{self.inputs_shape}], x_exo[{self.inputs_exo_shape}], y:[{self.targets_shape}])")
 

@@ -1,9 +1,10 @@
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.preprocessing import MinMaxScaler
 import os, yaml, torch, re, json, socket
+from torcheval.metrics import R2Score, MeanSquaredError
+from scipy.stats import linregress
 from datetime import datetime
 from typing import Tuple
-from tqdm import tqdm
 from torch import nn
 import polars as pl
 import numpy as np
@@ -14,10 +15,70 @@ from lib.price.insight import fetch_hist_spot
 from lib.price.valuta import fetch_hist_valuta
 from lib.weather.weather import fetch_hist_weather
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 PATH = os.path.dirname(__file__)
 
 with open(os.path.join(PATH,'config.yaml')) as fp:
     config = yaml.safe_load(fp)
+
+class Log:
+    def __init__(self, log_dir: str, window=100):
+        os.makedirs(log_dir, exist_ok=True)
+        self.writer = SummaryWriter(log_dir=log_dir)
+
+        self.window = window
+        self.train_loss = []
+        self.val_loss = []
+        self.t = -1
+
+    def graph(self, model, inputs: Tuple[torch.Tensor, ...]):
+        self.writer.add_graph(model, inputs)
+        self.writer.flush()
+
+    def output(self, epoch: int, batch:int,  train_loss: float, val_loss:  float, train_acc:  float, val_acc:  float)->bool:
+        self.t += 1
+        self.writer.add_scalars(
+            'Loss',
+            {
+                'Train': train_loss,
+                'Val': val_loss
+            },
+            self.t
+        )
+        self.writer.add_scalars(
+            'Accuracy',
+            {
+                'Train': train_acc,
+                'Val': val_acc
+            },
+            self.t
+        )
+
+        self.train_loss.append(train_loss)
+        self.val_loss.append(val_loss)
+
+        logger.info(f'[Epoch: {epoch}| Batch: {batch}] Loss: Train: {train_loss}; Val: {val_loss}')
+
+        if len(self.train_loss) > self.window:
+            self.train_loss.pop(0)
+            self.val_loss.pop(0)
+
+            train_slope = linregress(np.arange(1, self.window+1), self.train_loss).slope
+            val_slope = linregress(np.arange(1, self.window+1), self.val_loss).slope
+
+            self.writer.add_scalars(
+                'Loss slope',
+                {
+                    'train': train_slope,
+                    'val': val_slope
+                },
+                self.t
+            )
+            # terminate when validation slope becomes positive, ie., overfitting
+            return bool(val_slope)
+        return False
+
 
 class Ml:
 
@@ -29,18 +90,16 @@ class Ml:
         self.name = uuid
         self.path = os.path.join(work_dir, uuid)
 
-        self.log_dir = os.path.join(work_dir, f'runs/{uuid}/{datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}_{socket.gethostname()}')
         self.bronze_data_path = os.path.join(self.path, 'data/bronze')
         self.silver_data_path = os.path.join(self.path, 'data/silver')
 
-        os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.bronze_data_path, exist_ok=True)
         os.makedirs(self.silver_data_path, exist_ok=True)
 
         self.prepare_bronze_data()
         self.prepare_silver_data()
 
-        self.writer = SummaryWriter(log_dir=self.log_dir)
+        self.log = Log(log_dir=os.path.join(work_dir, f'runs/{uuid}/{datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}_{socket.gethostname()}'))
 
 
     def prepare_bronze_data(self):
@@ -156,8 +215,8 @@ class Ml:
         test_scaled = pl.DataFrame(scaler.transform(test), data.schema)
         val_scaled = pl.DataFrame(scaler.transform(val), data.schema)
 
-        train_loader = DataLoader( train_scaled, params=params['dataloader'], name='train')
-        test_loader = DataLoader( test_scaled , params=params['dataloader'], name='test')
+        train_loader = DataLoader(train_scaled, params=params['dataloader'], name='train')
+        test_loader = DataLoader(test_scaled , params=params['dataloader'], name='test')
         val_loader = DataLoader(val_scaled, params=params['dataloader'], name='val')
 
         return train_loader, test_loader, val_loader
@@ -171,11 +230,13 @@ class Ml:
 
         self.params = config['params'][model_class.lower()]
 
+        # load the data
         self.train_loader, self.test_loader, self.val_loader = self.load_data(
             data_path=os.path.join(self.silver_data_path, 'data.parquet'),
             params=self.params
         )
 
+        # create the dnn
         self.model = getattr(Network, model_class)(
             work_dir=self.path,
             inputs_shape=self.train_loader.inputs_shape,
@@ -183,71 +244,53 @@ class Ml:
             targets_shape = self.train_loader.targets_shape
         )
 
-        self.loss_fn = nn.HuberLoss(reduction='mean')
+        # tensor graph visualization
+        (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
+        self.log.graph(model=self.model, inputs=(inputs, inputs_exo))
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params['learning_rate'])
-
-    def train_one_epoch(self, epoch_index):
-        running_loss = 0.
-        last_loss = 0.
-
-        for batch_i, data in enumerate(self.train_loader):
-
-            (inputs, inputs_exo, targets) = data.values()
-
-            self.optimizer.zero_grad()
-
-            outputs = self.model.forward(
-                inputs=inputs,
-                inputs_exo=inputs_exo
-            )
-
-            loss = self.loss_fn(outputs, targets)
-            loss.backward()
-
-            self.optimizer.step()
-
-            running_loss += loss.item()
-            if batch_i % 10 == 9:
-                last_loss = running_loss / 10 # loss per batch
-                tb_x = epoch_index * len(self.train_loader) + batch_i + 1
-                self.writer.add_scalar('Loss/train', last_loss, tb_x)
-                running_loss = 0.
-                logger.info(f"[{batch_i + 1}] LOSS: Train {last_loss:.4f}")
-
-        return last_loss
-            
+        self.loss_fn = nn.HuberLoss(reduction='mean')
+        self.acc_fn = R2Score()
 
     def train(self):
 
-        best_vloss = 1_000_000.
-
         for epoch_i in range(self.params['num_epochs']):
+            for batch_i, data_i in enumerate(self.train_loader):
 
-            self.model.train()
-            avg_loss = self.train_one_epoch(epoch_i)
+                # training
+                self.model.train()
+                (_, inputs, inputs_exo, targets) = data_i.values()
 
-            running_vloss = 0.0
-            self.model.eval()
+                self.optimizer.zero_grad()
 
-            with torch.no_grad():
-                for i, vdata in enumerate(self.val_loader):
-                    (vinputs, vinputs_exo, vlabels) = vdata.values()
-                    voutputs = self.model(vinputs, vinputs_exo)
-                    vloss = self.loss_fn(voutputs, vlabels)
-                    running_vloss += vloss
-                    logger.info(f"[{i}] LOSS: Train {avg_loss:.4f}; Validation {vloss:.4f}")
+                outputs = self.model.forward(
+                    inputs=inputs,
+                    inputs_exo=inputs_exo
+                )
 
-            avg_vloss = running_vloss / (i + 1)
+                train_loss = self.loss_fn(outputs, targets)
+                train_acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
+                                         targets.view(targets.shape[1],targets.shape[0]*targets.shape[2])).compute()
 
-            self.writer.add_scalars('Training vs. Validation Loss',
-                               { 'Training' : avg_loss, 'Validation' : avg_vloss },
-                                    epoch_i + 1)
-            self.writer.flush()
+                train_loss.backward()
 
-            if avg_vloss < best_vloss:
-                best_vloss = avg_vloss
-                #model_path = 'model_{}_{}'.format(timestamp, epoch_i)
-                #torch.save(self.model.state_dict(), model_path)
+                self.optimizer.step()
+
+                # validate on one sample
+                self.model.eval()
+
+                with torch.no_grad():
+                    (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
+
+                    outputs = self.model(inputs, inputs_exo)
+
+                    val_loss = self.loss_fn(outputs, targets)
+                    val_acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
+                                             targets.view(targets.shape[1],targets.shape[0]*targets.shape[2])).compute()
+
+                if self.log.output(epoch=epoch_i, batch=batch_i, train_loss=train_loss.item(), val_loss=val_loss.item(), train_acc=train_acc.item(), val_acc=val_acc.item()):
+                    continue;
+
 
 
 
