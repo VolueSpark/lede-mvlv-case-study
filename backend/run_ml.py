@@ -38,24 +38,19 @@ class CustomServer(tb.program.TensorBoardServer):
         pass  # Werkzeug's `serving.run_simple` handles this
 
 
-def run_ml(uuid: str):
-    ml = Ml(
-        uuid=uuid,
-        work_dir=WORK_PATH
-    )
-
-    ml.create()
-    ml.train()
-
-
 UUID = '59f5db7a-a41d-5166-90d8-207ca87fecc6'
 if __name__ == "__main__":
 
-    th1 = Thread(target=run_ml, args=[UUID])
+    ml = Ml(
+        root=WORK_PATH,
+        uuid=UUID
+    )
+
+    th1 = Thread(target=ml.train)
     th1.start()
 
     program = tb.program.TensorBoard(server_class=CustomServer)
-    program.configure(logdir=os.path.join(WORK_PATH, 'runs', UUID), load_fast=True)
+    program.configure(logdir=ml.tensorboard_path, load_fast=True)
     program.main()
 
 

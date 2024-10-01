@@ -26,6 +26,8 @@ class SparkNet(nn.Module):
     ):
         super().__init__()
 
+        self.name = self.__class__.__name__
+
         logger.info(f"Instantiate deep neural network model {self.__class__.__name__} with work directory {work_dir} using device {device}")
 
         self.device = device

@@ -1,8 +1,7 @@
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.preprocessing import MinMaxScaler
+from torcheval.metrics import MeanSquaredError
 import os, yaml, torch, re, json, socket
-from torcheval.metrics import R2Score, MeanSquaredError
-from scipy.stats import linregress
 from datetime import datetime
 from typing import Tuple
 from torch import nn
@@ -22,85 +21,35 @@ PATH = os.path.dirname(__file__)
 with open(os.path.join(PATH,'config.yaml')) as fp:
     config = yaml.safe_load(fp)
 
-class Log:
-    def __init__(self, log_dir: str, window=100):
-        os.makedirs(log_dir, exist_ok=True)
-        self.writer = SummaryWriter(log_dir=log_dir)
-
-        self.window = window
-        self.train_loss = []
-        self.val_loss = []
-        self.t = -1
-
-    def graph(self, model, inputs: Tuple[torch.Tensor, ...]):
-        self.writer.add_graph(model, inputs)
-        self.writer.flush()
-
-    def output(self, epoch: int, batch:int,  train_loss: float, val_loss:  float, train_acc:  float, val_acc:  float)->bool:
-        self.t += 1
-        self.writer.add_scalars(
-            'Loss',
-            {
-                'Train': train_loss,
-                'Val': val_loss
-            },
-            self.t
-        )
-        self.writer.add_scalars(
-            'Accuracy',
-            {
-                'Train': train_acc,
-                'Val': val_acc
-            },
-            self.t
-        )
-
-        self.train_loss.append(train_loss)
-        self.val_loss.append(val_loss)
-
-        logger.info(f'[Epoch: {epoch}| Batch: {batch}] Loss: Train: {train_loss}; Val: {val_loss}')
-
-        if len(self.train_loss) > self.window:
-            self.train_loss.pop(0)
-            self.val_loss.pop(0)
-
-            train_slope = linregress(np.arange(1, self.window+1), self.train_loss).slope
-            val_slope = linregress(np.arange(1, self.window+1), self.val_loss).slope
-
-            self.writer.add_scalars(
-                'Loss slope',
-                {
-                    'train': train_slope,
-                    'val': val_slope
-                },
-                self.t
-            )
-            # terminate when validation slope becomes positive, ie., overfitting
-            return bool(val_slope)
-        return False
+TIME_FORMAT = '%Y-%m-%dT%H:%M:%S'
 
 
 class Ml:
 
     def __init__(
             self,
-            uuid: str,
-            work_dir: str
+            root: str,
+            uuid: str
     ):
         self.name = uuid
-        self.path = os.path.join(work_dir, uuid)
+        self.path = os.path.join(root, uuid)
 
+        self.tensorboard_path = os.path.join(self.path, f'tensorboard/{datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}_{socket.gethostname()}')
+        self.artifacts_path = os.path.join(self.path, 'artifacts')
         self.bronze_data_path = os.path.join(self.path, 'data/bronze')
         self.silver_data_path = os.path.join(self.path, 'data/silver')
-
-        os.makedirs(self.bronze_data_path, exist_ok=True)
-        os.makedirs(self.silver_data_path, exist_ok=True)
 
         self.prepare_bronze_data()
         self.prepare_silver_data()
 
-        self.log = Log(log_dir=os.path.join(work_dir, f'runs/{uuid}/{datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}_{socket.gethostname()}'))
+        self.writer = SummaryWriter(log_dir=self.tensorboard_path)
 
+        os.makedirs(self.tensorboard_path, exist_ok=True)
+        os.makedirs(self.artifacts_path, exist_ok=True)
+        os.makedirs(self.bronze_data_path, exist_ok=True)
+        os.makedirs(self.silver_data_path, exist_ok=True)
+
+        self.create()
 
     def prepare_bronze_data(self):
 
@@ -156,7 +105,6 @@ class Ml:
                 .with_columns(
                     p_kwh=(pl.col('p_kwh_out') - pl.col('p_kwh_in')),
                     q_kvarh=(pl.col('q_kvarh_out') - pl.col('q_kvarh_in')),
-
                 )
                 .drop('p_kwh_in', 'p_kwh_out', 'q_kvarh_in', 'q_kvarh_out')
                 .pivot(
@@ -196,30 +144,27 @@ class Ml:
 
     def load_data(self, data_path: str, params: dict):
         # purge non-features from dataframe
-        data = pl.read_parquet(data_path).drop('t_timestamp')
+        data = pl.read_parquet(data_path)
 
         n = data.shape[0]
-        train = data[:int(n * params['split'][0])]
-        test = data[int(n * params['split'][1]):]
-        val = data[int(n * params['split'][0]):int(n * params['split'][1])]
+        split_boundary = int(n * params['split'])
+        train = data[:split_boundary].drop('t_timestamp')
+        val = data[split_boundary:].drop('t_timestamp')
 
-        logger.info(f"Split data on a training:validation:test ratio of "
-                    f"{int(n * params['split'][0])}:"
-                    f"{int(n * (params['split'][1] - params['split'][0]))}:"
-                    f"{int(n * (1 - params['split'][1]))}")
+        logger.info(f"Split data on a training:validation ratio of "
+                    f"{split_boundary}:"
+                    f"{n-split_boundary}")
 
         scaler = MinMaxScaler()
         scaler.fit(train)
 
-        train_scaled = pl.DataFrame(scaler.transform(train), data.schema)
-        test_scaled = pl.DataFrame(scaler.transform(test), data.schema)
-        val_scaled = pl.DataFrame(scaler.transform(val), data.schema)
+        train_scaled = pl.DataFrame(scaler.transform(train), train.schema)
+        val_scaled = pl.DataFrame(scaler.transform(val), val.schema)
 
         train_loader = DataLoader(train_scaled, params=params['dataloader'], name='train')
-        test_loader = DataLoader(test_scaled , params=params['dataloader'], name='test')
         val_loader = DataLoader(val_scaled, params=params['dataloader'], name='val')
 
-        return train_loader, test_loader, val_loader
+        return train_loader, val_loader
 
     def create(self):
         model_class = config['ml']['variant']
@@ -231,7 +176,7 @@ class Ml:
         self.params = config['params'][model_class.lower()]
 
         # load the data
-        self.train_loader, self.test_loader, self.val_loader = self.load_data(
+        self.train_loader, self.val_loader = self.load_data(
             data_path=os.path.join(self.silver_data_path, 'data.parquet'),
             params=self.params
         )
@@ -246,20 +191,27 @@ class Ml:
 
         # tensor graph visualization
         (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
-        self.log.graph(model=self.model, inputs=(inputs, inputs_exo))
+        self.writer.add_graph(model=self.model, input_to_model=(inputs, inputs_exo))
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params['learning_rate'])
         self.loss_fn = nn.HuberLoss(reduction='mean')
-        self.acc_fn = R2Score()
+        self.acc_fn = MeanSquaredError()
 
     def train(self):
 
-        for epoch_i in range(self.params['num_epochs']):
-            for batch_i, data_i in enumerate(self.train_loader):
+        epoch_ave_vloss = np.nan
+        epoch_ave_vacc = np.nan
 
-                # training
-                self.model.train()
-                (_, inputs, inputs_exo, targets) = data_i.values()
+        for epoch_i in range(self.params['num_epochs']):
+
+            self.model.train()
+
+            epoch_ave_loss = 0
+            epoch_ave_acc = 0
+
+            for train_i, train_data in enumerate(self.train_loader):
+
+                (_, inputs, inputs_exo, targets) = train_data.values()
 
                 self.optimizer.zero_grad()
 
@@ -268,28 +220,54 @@ class Ml:
                     inputs_exo=inputs_exo
                 )
 
-                train_loss = self.loss_fn(outputs, targets)
-                train_acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
+                loss = self.loss_fn(outputs, targets)
+                acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
                                          targets.view(targets.shape[1],targets.shape[0]*targets.shape[2])).compute()
 
-                train_loss.backward()
+                loss.backward()
 
                 self.optimizer.step()
 
-                # validate on one sample
-                self.model.eval()
+                epoch_ave_loss = (loss.item() + train_i*epoch_ave_loss)/(train_i+1)
+                epoch_ave_acc = (acc.item() + train_i*epoch_ave_acc)/(train_i+1)
 
-                with torch.no_grad():
-                    (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
+                self.writer.add_scalar('Loss/train', loss.item())
+                self.writer.add_scalar('Acc/train', acc.item())
+
+                logger.info(f"\033[F\rEPOCH {epoch_i+1}/{self.params['num_epochs']} TRAIN {(train_i+1)/self.train_loader.iter_cnt*100:.0f}%: loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} VAL {0}%: val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f}",end='', color=logger.BLUE)
+
+            self.model.eval()
+
+            epoch_ave_vloss = 0
+            epoch_ave_vacc = 0
+
+            with torch.no_grad():
+                for val_i, val_data in enumerate(self.val_loader):
+                    (_, inputs, inputs_exo, targets) = val_data.values()
 
                     outputs = self.model(inputs, inputs_exo)
 
-                    val_loss = self.loss_fn(outputs, targets)
-                    val_acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
+                    loss = self.loss_fn(outputs, targets)
+                    acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
                                              targets.view(targets.shape[1],targets.shape[0]*targets.shape[2])).compute()
 
-                if self.log.output(epoch=epoch_i, batch=batch_i, train_loss=train_loss.item(), val_loss=val_loss.item(), train_acc=train_acc.item(), val_acc=val_acc.item()):
-                    continue;
+                    epoch_ave_vloss = (loss.item() + val_i*epoch_ave_vloss)/(val_i+1)
+                    epoch_ave_vacc = (acc.item() + val_i*epoch_ave_vacc)/(val_i+1)
+
+                    self.writer.add_scalar('Loss/val', loss.item())
+                    self.writer.add_scalar('Acc/val', acc.item())
+
+                    logger.info(f"\033[F\rEPOCH {epoch_i+1}/{self.params['num_epochs']} TRAIN {(train_i+1)/self.train_loader.iter_cnt*100:.0f}%: loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} VAL {(val_i+1)/self.val_loader.iter_cnt*100:.0f}%: val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f}",end='', color=logger.BLUE)
+
+                logger.info('')
+
+            self.writer.add_scalars('Loss/epoch', {'train': epoch_ave_loss, 'val': epoch_ave_vloss}, epoch_i)
+            self.writer.add_scalars('Acc/epoch', {'train': epoch_ave_acc, 'val': epoch_ave_vacc}, epoch_i)
+
+        model_path = os.path.join(self.artifacts_path, f'__{self.model.name.lower()}__.pytorch')
+        torch.save(self.model.state_dict(), model_path)
+
+        logger.info(f'Pytorch model saved to: {model_path}')
 
 
 

@@ -46,7 +46,8 @@ def run_ml(uuid: str):
     )
 
     ml.create()
-    ml.train()
+    #ml.train()
+    ml.test()
 
 
 if __name__ == "__main__":

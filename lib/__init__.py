@@ -19,6 +19,7 @@ class bcolors:
     GREEN = '\033[32m'      # Green text
     BLACK = '\033[30m'      # Black text
     RED = '\033[31m'        # Red text
+    BLUE = '\033[34m'
     ENDC = '\033[0m'
 
 
@@ -35,16 +36,21 @@ class Logging(bcolors):
 
 
 
-    def __thread_safe_print(self, msg: str):
+    def __thread_safe_print(self, msg: str, end='\n'):
         with lock:
-            print(msg, flush=True)
+            print(msg, flush=True, end=end)
 
     def __debug(self, msg:str, color: bcolors):
         self.__thread_safe_print(f"{color}{msg}{bcolors.ENDC}")
 
 
-    def __log(self, msg:str, color: bcolors):
-        self.__thread_safe_print(f"{color}{msg}{bcolors.ENDC}")
+    #def __log(self, msg:str, color: bcolors):
+    def __log(self, msg, **kwargs):
+        color = kwargs['color'] if 'color' in kwargs else bcolors.INFO
+        end = kwargs['end'] if 'end' in kwargs else '\n'
+
+
+        self.__thread_safe_print(f"{color}{msg}{bcolors.ENDC}", end=end)
         if color in [bcolors.INFO, bcolors.NOTICE]:
             logging.info(msg)
         elif color == bcolors.WARNING:
@@ -53,8 +59,10 @@ class Logging(bcolors):
             logging.exception(msg)
 
 
-    def info(self, msg: str, color:bcolors=bcolors.INFO, ):
-        self.__log(msg=msg, color=color)
+    #def info(self, msg: str, color:bcolors=bcolors.INFO, ):
+    def info(self, *args, **kwargs) -> None:
+        #self.__log(msg=msg, color=color)
+        self.__log(*args, **kwargs)
 
     def notice(self, msg: str, color:bcolors=bcolors.NOTICE):
         self.__log(msg=msg,  color=color)
