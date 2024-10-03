@@ -1,5 +1,4 @@
 from lib.ml.ml import DataLoader, PARAMS, NETWORK, MODEL_CLASS
-import matplotlib.pyplot as plt
 import joblib, yaml, os, torch
 from typing import Any
 import numpy as np
@@ -7,6 +6,9 @@ import polars as pl
 import pandas as pd
 
 PATH = os.path.dirname(__file__)
+
+from lib.ml import Scaler
+from lib.ml.plotting import plot_aggregate
 
 
 class Predict:
@@ -21,14 +23,23 @@ class Predict:
         if not os.path.exists(os.path.join(self.path, 'artifacts')):
             raise Exception(f'Need to first train {uuid} prior to predictions')
 
-        self.scaler = joblib.load(os.path.join(self.path, 'artifacts/minmaxScaler.pkl'))
+        self.scaler = Scaler.load(pickle_path=os.path.join(self.path, 'artifacts/dataset_scaler.pkl'))
+        self.data = pl.read_parquet(os.path.join(self.path, 'artifacts/dataset_test.parquet'))
 
-        self.data = pl.read_parquet(os.path.join(self.path, 'artifacts/test_dataset.parquet')).drop('t_timestamp')
-        self.data_scaled = pd.DataFrame(data=self.scaler.transform(self.data), columns=self.data.columns)
+        test = self.data.drop('t_timestamp').to_numpy()
+        test_scaled = self.scaler.transform(test)
 
-        abs(self.scaler.inverse_transform(self.scaler.transform(self.data)) - self.data.to_numpy()).max()
+        abs(self.scaler.inverse_transform(self.scaler.transform(test))-test).max()
 
-        self.test_loader = DataLoader(data=self.data_scaled, params=PARAMS['dataloader'], name='test')
+        self.test_loader = DataLoader(
+            data=test_scaled,
+            features=self.scaler.features,
+            input_width=PARAMS['dataloader']['window']['input_width'],
+            label_width=PARAMS['dataloader']['window']['label_width'],
+            batch_size=1,
+            shuffle=False,
+            name='test_loader'
+        )
 
         self.model = getattr(NETWORK, MODEL_CLASS)(
             work_dir=self.path,
@@ -37,7 +48,10 @@ class Predict:
             targets_shape = self.test_loader.targets_shape
         )
 
-        self.model.load_state_dict(torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'__{self.model.name.lower()}__.pytorch')), weights_only=True))
+        self.model.load_state_dict(
+            torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'{self.model.name.lower()}.pytorch')),
+                       weights_only=True)
+        )
 
     def predict(self, inputs: Any=None):
         if inputs is None:
@@ -48,59 +62,31 @@ class Predict:
                 with torch.no_grad():
                     outputs = self.model(inputs, inputs_exo)
 
-                self.plot(index, inputs, inputs_exo, outputs, targets)
+                x = self.data.select(['t_timestamp']+list(self.test_loader.meta.target_features.keys()))[index.item():index.item()+self.test_loader.meta.input_shape[2]]
+                y = self.data.select(['t_timestamp']+list(self.test_loader.meta.target_features.keys()))[index.item()+self.test_loader.meta.input_shape[2]:index.item()+self.test_loader.meta.input_shape[2]+self.test_loader.meta.target_shape[2]]
+                y_hat = (
+                    pl.from_pandas(
+                        pd.DataFrame(
+                            self.scaler.inverse_transform(data=outputs[0].numpy().transpose(),
+                                                          features=self.test_loader.meta.target_features),
+                            columns=self.test_loader.meta.target_features.keys()
+                        )
+                    ).with_columns(t_timestamp=pl.Series(y.select('t_timestamp')))
+                ).select(['t_timestamp']+list(self.test_loader.meta.target_features.keys()))
 
-    def plot(self,index: Any, inputs: Any, inputs_exo: Any, outputs: Any, targets: Any):
-        schema={feature:pl.Float64 for feature in self.test_loader.dataset.inputs}
+                plot_aggregate(i=index.item(), x=x, y_hat=y_hat, y=y)
 
-        x_ = self.data[0:48]
-        y_ = self.data[48:48+24]
+                #inputs_data = self.data.drop('t_timestamp')[index.item():index.item()+self.test_loader.inputs_shape[2]]
+                #target_data = self.data.drop('t_timestamp')[index.item()+self.test_loader.inputs_shape[2]:index.item()+self.test_loader.inputs_shape[2]+self.test_loader.inputs_exo_shape[2]]
 
-        x = pd.DataFrame(data=self.scaler.inverse_transform(inputs[0].numpy().transpose()), columns=self.test_loader.dataset.inputs.keys())
-        y = pl.DataFrame(self.scaler.inverse_transform(torch.cat([targets, inputs_exo], dim=1)[0].numpy().transpose()), schema=schema)
-        y_hat = pl.DataFrame(self.scaler.inverse_transform(torch.cat([outputs, inputs_exo], dim=1)[0].numpy().transpose()), schema=schema)
+                #abs(self.scaler.transform(inputs_data.to_numpy(), self.test_loader.meta.input_features).transpose()-inputs[0].numpy()).max()
+                #abs(self.scaler.transform(y.to_numpy(), self.test_loader.meta.target_features).transpose()-targets[0].numpy()).max()
 
-'''
-class Predict:
-    def __init__(self, uuid):
-        self.uuid = uuid
+                #target_dnn = torch.cat([targets, inputs_exo], dim=1)[0]
+
+                #abs(self.scaler.transform(target_data.to_numpy()).transpose()-target_dnn.numpy()).max()
 
 
-    def predict(self):
 
-        model_class = config['ml']['variant']
-        library_path = f"lib.ml.model.{model_class.lower()}"
-        Network = __import__(library_path, fromlist=[model_class])
 
-        params={
-            'window':
-                {
-                    'input_width': 48,
-                    'label_width': 24,
-                },
-            'batch_size': 1,
-            'shuffle': False
-        }
 
-        scaler = joblib.load(os.path.join(self.path, 'minmax_scaler.pkl'))
-        test_loader = DataLoader(
-            pl.read_parquet(os.path.join(self.path, 'test_scaled.parquet')),
-            params=params,
-            name='test'
-        )
-
-        model = getattr(Network, model_class)(
-            work_dir=self.path,
-            inputs_shape=test_loader.inputs_shape,
-            inputs_exo_shape=test_loader.inputs_exo_shape,
-            targets_shape = test_loader.targets_shape)
-        model.load_state_dict(torch.load(os.path.join(self.path, 'model.pytorch'), weights_only=True))
-
-        model.eval()
-
-        with torch.no_grad():
-            for i, data in enumerate((pbar := tqdm(test_loader, position=0, leave=True))):
-                (_, inputs, inputs_exo, targets) = data.values()
-
-                outputs = model(inputs, inputs_exo)
-'''

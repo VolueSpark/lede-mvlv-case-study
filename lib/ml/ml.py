@@ -1,15 +1,17 @@
 from torch.utils.tensorboard import SummaryWriter
-from sklearn.preprocessing import MinMaxScaler
 from torcheval.metrics import MeanSquaredError
 import os, yaml, torch, re, json, socket
 from datetime import datetime
 from typing import Tuple
+import pyarrow as pa
+import pyarrow.parquet as pq
 from torch import nn
 import pandas as pd
 import polars as pl
 import numpy as np
-import joblib
 import time
+
+from lib.ml import Split, Scaler
 
 from lib import logger
 from lib.ml.dataloader import DataLoader
@@ -150,28 +152,41 @@ class Ml:
              .write_parquet(os.path.join(self.silver_data_path, 'data.parquet')))
 
     def load_data(self, data_path):
-        # purge non-features from dataframe
         data = pl.read_parquet(data_path)
 
-        n = data.shape[0]
-        split_n = [ int(n*split_i)for split_i in PARAMS['split']]
+        # split data. features excluding time frame, test untouched
+        features, train, val, test = Split(data=data, split=PARAMS['split'])
 
-        train = data[:split_n[0]].drop('t_timestamp')
-        val = data[split_n[0]:split_n[1]].drop('t_timestamp')
+        # scale train and validation data
+        scaler = Scaler()
+        scaler.fit(train, features)
 
-        data[split_n[1]:].write_parquet(os.path.join(self.artifacts_path, 'test_dataset.parquet'))
+        train_scaled = scaler.transform(train)
+        val_scaled = scaler.transform(val)
 
-        logger.info(f"Split data on a training:validation ratio of {split_n[0]}:{split_n[1]-split_n[0]}:{n-split_n[1]}")
+        train_loader = DataLoader(
+            data=train_scaled,
+            features=features,
+            input_width=PARAMS['dataloader']['window']['input_width'],
+            label_width=PARAMS['dataloader']['window']['label_width'],
+            batch_size=PARAMS['dataloader']['batch_size'],
+            shuffle=PARAMS['dataloader']['shuffle'],
+            name='train_loader'
+        )
 
-        scaler = MinMaxScaler()
-        scaler.fit(train)
-        joblib.dump(scaler, os.path.join(self.artifacts_path, 'minmaxScaler.pkl'))
+        val_loader = DataLoader(
+            data=val_scaled,
+            features=features,
+            input_width=PARAMS['dataloader']['window']['input_width'],
+            label_width=PARAMS['dataloader']['window']['label_width'],
+            batch_size=PARAMS['dataloader']['batch_size'],
+            shuffle=PARAMS['dataloader']['shuffle'],
+            name='val_loader'
+        )
 
-        train_scaled = pd.DataFrame(data=scaler.transform(train), columns=train.columns)
-        val_scaled = pd.DataFrame(data=scaler.transform(val), columns=val.columns)
-
-        train_loader = DataLoader(train_scaled, params=PARAMS['dataloader'], name='train')
-        val_loader = DataLoader(val_scaled, params=PARAMS['dataloader'], name='val')
+        # save artifacts
+        scaler.save(os.path.join(self.artifacts_path, 'dataset_scaler.pkl'))
+        test.write_parquet(os.path.join(self.artifacts_path, 'dataset_test.parquet'))
 
         return train_loader, val_loader
 
@@ -243,7 +258,7 @@ class Ml:
                 train_idx +=1
 
                 train_it_per_sec = train_i/(time.time()-t0)
-                logger.info(f"\033[F\rEPOCH {(epoch_i+1)/PARAMS['num_epochs']*100:.0f}% ({epoch_i+1}/{PARAMS['num_epochs']}) [{time.time() - t0_epoch:.3f} sec]|TRAIN {(train_i+1)/self.train_loader.iter_cnt*100:.0f}% ({train_i+1}/{self.train_loader.iter_cnt}): loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} [{train_it_per_sec:.4f} it/sec]|VAL {0}%: val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f} [- it/sec]",end='', color=logger.BLUE)
+                logger.info(f"\033[F\rEPOCH {(epoch_i+1)/PARAMS['num_epochs']*100:.0f}% ({epoch_i+1}/{PARAMS['num_epochs']}) [{time.time() - t0_epoch:.3f} sec]|TRAIN {(train_i+1)/self.train_loader.meta.loader_depth*100:.0f}% ({train_i+1}/{self.train_loader.meta.loader_depth}): loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} [{train_it_per_sec:.4f} it/sec]|VAL {0}%: val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f} [- it/sec]",end='', color=logger.BLUE)
                 # TODO end
 
             self.model.eval()
@@ -271,7 +286,7 @@ class Ml:
                     val_idx +=1
 
                     val_it_per_sec = val_i/(time.time()-t0)
-                    logger.info(f"\033[F\rEPOCH {(epoch_i+1)/PARAMS['num_epochs']*100:.0f}% ({epoch_i+1}/{PARAMS['num_epochs']}) [{time.time() - t0_epoch:.3f} sec]|TRAIN {(train_i+1)/self.train_loader.iter_cnt*100:.0f}% ({train_i+1}/{self.train_loader.iter_cnt}): loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} [{train_it_per_sec:.4f} it/sec]|VAL {(val_i+1)/self.val_loader.iter_cnt*100:.0f}% ({val_i+1}/{self.val_loader.iter_cnt}): val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f} [{val_it_per_sec:.4f} it/sec]",end='', color=logger.BLUE)
+                    logger.info(f"\033[F\rEPOCH {(epoch_i+1)/PARAMS['num_epochs']*100:.0f}% ({epoch_i+1}/{PARAMS['num_epochs']}) [{time.time() - t0_epoch:.3f} sec]|TRAIN {(train_i+1)/self.train_loader.meta.loader_depth*100:.0f}% ({train_i+1}/{self.train_loader.meta.loader_depth}): loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} [{train_it_per_sec:.4f} it/sec]|VAL {(val_i+1)/self.val_loader.meta.loader_depth*100:.0f}% ({val_i+1}/{self.val_loader.meta.loader_depth}): val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f} [{val_it_per_sec:.4f} it/sec]",end='', color=logger.BLUE)
 
                 logger.info('')
 
@@ -279,7 +294,7 @@ class Ml:
             self.writer.add_scalars('Acc/epoch', {'train': epoch_ave_acc, 'val': epoch_ave_vacc}, epoch_i)
             # TODO end
 
-        model_path = os.path.join(self.artifacts_path, f'__{self.model.name.lower()}__.pytorch')
+        model_path = os.path.join(self.artifacts_path, f'{self.model.name.lower()}.pytorch')
         torch.save(self.model.state_dict(), model_path)
 
         logger.info(f'Pytorch model saved to: {model_path}')
