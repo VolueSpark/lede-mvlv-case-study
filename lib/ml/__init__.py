@@ -120,6 +120,7 @@ class ProgressBar:
             print(f"{Ascii.RETURN}{Ascii.GREEN}TRAIN ({self.epoch_train.progress_pct:3.0f}%): loss={self.epoch_train.loss:.2e}; acc={self.epoch_train.acc:.2e} [{self.epoch_train.it_per_sec:5.2f} it/sec]{Ascii.END} "
                           f"{Ascii.YELLOW}VAL ({self.epoch_val.progress_pct:3.0f}%): loss={self.epoch_val.loss:.2e}; acc={self.epoch_val.acc:.2e} [{self.epoch_val.it_per_sec:5.2f} it/sec]{Ascii.END}", end='')
 
+
 pbar = ProgressBar()
 
 
@@ -133,6 +134,8 @@ def decorator_epoch(func):
         for result in func(self, *args, **kwargs):
 
             (global_index, loss, acc) = result
+
+            #print(f'epoch_training: index={global_index}, loss={loss}, acc={acc}')
 
             elapsed_time = (time.time()-t0)
 
@@ -161,8 +164,8 @@ def decorator_epoch(func):
             self.writer.add_scalar(f'Loss/{tag}', loss, global_index)
             self.writer.add_scalar(f'Acc/{tag}', acc, global_index)
 
-            ave_loss = (loss + global_index*ave_loss)/(global_index+1)
-            ave_acc = (acc + global_index*ave_acc)/(global_index+1)
+            ave_loss = (loss + local_index*ave_loss)/(local_index+1)
+            ave_acc = (acc + local_index*ave_acc)/(local_index+1)
         return (ave_loss, ave_acc)
     return inner
 

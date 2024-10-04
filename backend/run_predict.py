@@ -13,7 +13,7 @@ if __name__ == "__main__":
     (x,y,y_hat) = next(Predict(
         root=WORK_PATH,
         uuid=UUID
-    ).predict(data=data[0:72]))
+    ).predict(data=data))
 
     plot_aggregate(x, y, y_hat)
 

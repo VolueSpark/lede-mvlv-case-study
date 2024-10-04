@@ -38,6 +38,9 @@ class Predict:
     def parse(self, i: int, data: torch.Tensor) -> Tuple[pl.DataFrame,...]:
         x = self.data.select(['t_timestamp']+list(self.meta['features']['target'].keys()))[i:i+self.meta['shape']['input'][2]]
         y = self.data.select(['t_timestamp']+list(self.meta['features']['target'].keys()))[i+self.meta['shape']['input'][2]:i+self.meta['shape']['input'][2]+self.meta['shape']['target'][2]]
+
+
+
         y_hat = (
             pl.from_pandas(
                 pd.DataFrame(
@@ -77,6 +80,41 @@ class Predict:
 
             with torch.no_grad():
                 outputs = self.model(inputs, inputs_exo)
+
+                '''
+                x = (
+                    pl.from_pandas(
+                        pd.DataFrame(
+                            self.scaler.inverse_transform(inputs[0].numpy().transpose(),
+                                                          features=self.meta['features']['input']),
+                            columns=self.meta['features']['input'].keys()
+                        )
+                    ).with_columns(t_timestamp=pl.Series(self.data.select('t_timestamp')[i:i+self.meta['shape']['input'][2]]))
+                ).select(['t_timestamp']+list(self.meta['features']['input'].keys()))
+
+
+                y = (
+                    pl.from_pandas(
+                        pd.DataFrame(
+                            self.scaler.inverse_transform(targets[0].numpy().transpose(),
+                                                          features=self.meta['features']['target']),
+                            columns=self.meta['features']['target'].keys()
+                        )
+                    ).with_columns(t_timestamp=pl.Series(self.data.select('t_timestamp')[i+self.meta['shape']['input'][2]:i+self.meta['shape']['input'][2]+self.meta['shape']['target'][2]]))
+                ).select(['t_timestamp']+list(self.meta['features']['target'].keys()))
+
+                y_hat = (
+                    pl.from_pandas(
+                        pd.DataFrame(
+                            self.scaler.inverse_transform(data=outputs[0].numpy().transpose(),
+                                                          features=self.meta['features']['target']),
+                            columns=self.meta['features']['target'].keys()
+                        )
+                    ).with_columns(t_timestamp=pl.Series(y.select('t_timestamp')))
+                ).select(['t_timestamp']+list(self.meta['features']['target'].keys()))
+                '''
+
+
                 yield self.parse(i=i, data=outputs)
 
 

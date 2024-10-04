@@ -264,6 +264,8 @@ class Ml:
 
             self.optimizer.step()
 
+            #print(f'epoch_training: index={epoch_i*self.train_loader.meta.loader_depth + i}, loss={loss.item()}, acc={acc.item()}')
+
             yield (epoch_i*self.train_loader.meta.loader_depth + i, loss.item(), acc.item())
 
     @decorator_epoch
