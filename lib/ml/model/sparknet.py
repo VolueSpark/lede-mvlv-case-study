@@ -7,19 +7,9 @@ from lib.ml.layer.mlp import MultiLayerPerceptron
 from lib.ml.layer.casualresidual import CasualResidual
 from lib.ml.layer.casualdownsample import CasualDownSample
 
-device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
-
-
 class SparkNet(nn.Module):
     def __init__(
             self,
-            work_dir: str,
             inputs_shape: Tuple[int, int, int],
             inputs_exo_shape: Tuple[int, int, int],
             targets_shape: Tuple[int, int, int]
@@ -28,10 +18,7 @@ class SparkNet(nn.Module):
 
         self.name = self.__class__.__name__
 
-        logger.info(f"Instantiate deep neural network model {self.__class__.__name__} with work directory {work_dir} using device {device}")
-
-        self.device = device
-        self.work_dir = work_dir
+        logger.info(f"Instantiate deep neural network model {self.__class__.__name__}: [inputs_shape={inputs_shape}, inputs_exo_shape={inputs_exo_shape}, targets_shape={targets_shape}]")
 
         self.conv1dres_1 = CasualResidual(
             inputs_shape=inputs_shape

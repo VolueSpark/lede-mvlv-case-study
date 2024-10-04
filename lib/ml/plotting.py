@@ -11,7 +11,7 @@ font = {'family' : 'normal',
 
 matplotlib.rc('font', **font)
 
-def plot_aggregate(i: int, x: pl.DataFrame, y_hat: pl.DataFrame, y: pl.DataFrame):
+def plot_aggregate(x: pl.DataFrame, y: pl.DataFrame, y_hat: pl.DataFrame):
     x = x.with_columns(q_sum_kvarh=x.select(pl.col(r'^X_Q.*$')).sum_horizontal(), p_sum_kwh=x.select(pl.col(r'^X_P.*$')).sum_horizontal())
     y = y.with_columns(q_sum_kvarh=y.select(pl.col(r'^X_Q.*$')).sum_horizontal(), p_sum_kwh=y.select(pl.col(r'^X_P.*$')).sum_horizontal())
     y_hat = y_hat.with_columns(q_sum_kvarh=y_hat.select(pl.col(r'^X_Q.*$')).sum_horizontal(), p_sum_kwh=y_hat.select(pl.col(r'^X_P.*$')).sum_horizontal())
@@ -40,5 +40,4 @@ def plot_aggregate(i: int, x: pl.DataFrame, y_hat: pl.DataFrame, y: pl.DataFrame
     plt.xticks(rotation=25)
     plt.tight_layout()
     plt.show()
-    input('Continue?')
 

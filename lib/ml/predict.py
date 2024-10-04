@@ -1,14 +1,14 @@
-from lib.ml.ml import DataLoader, PARAMS, NETWORK, MODEL_CLASS
-import joblib, yaml, os, torch
-from typing import Any
-import numpy as np
+from lib.ml.ml import DataLoader
+import os, torch, json, importlib
+
+from typing import Tuple
 import polars as pl
 import pandas as pd
 
 PATH = os.path.dirname(__file__)
 
 from lib.ml import Scaler
-from lib.ml.plotting import plot_aggregate
+
 
 
 class Predict:
@@ -23,58 +23,65 @@ class Predict:
         if not os.path.exists(os.path.join(self.path, 'artifacts')):
             raise Exception(f'Need to first train {uuid} prior to predictions')
 
-        self.scaler = Scaler.load(pickle_path=os.path.join(self.path, 'artifacts/dataset_scaler.pkl'))
-        self.data = pl.read_parquet(os.path.join(self.path, 'artifacts/dataset_test.parquet'))
+        self.scaler = Scaler().load(pickle_path=os.path.join(self.path, 'artifacts'))
+        with open(os.path.join(self.path, 'artifacts', 'meta.json')) as fp:
+            self.meta = json.load(fp)
 
-        test = self.data.drop('t_timestamp').to_numpy()
-        test_scaled = self.scaler.transform(test)
+        module = importlib.import_module(self.meta['library'])
+        self.model = getattr(module, self.meta['class'])(
+            inputs_shape=self.meta['shape']['input'],
+            inputs_exo_shape=self.meta['shape']['exo'],
+            targets_shape=self.meta['shape']['target']
+        )
+        self.model.load_state_dict(torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'state_dict.pth')),weights_only=True))
 
-        abs(self.scaler.inverse_transform(self.scaler.transform(test))-test).max()
+    def parse(self, i: int, data: torch.Tensor) -> Tuple[pl.DataFrame,...]:
+        x = self.data.select(['t_timestamp']+list(self.meta['features']['target'].keys()))[i:i+self.meta['shape']['input'][2]]
+        y = self.data.select(['t_timestamp']+list(self.meta['features']['target'].keys()))[i+self.meta['shape']['input'][2]:i+self.meta['shape']['input'][2]+self.meta['shape']['target'][2]]
+        y_hat = (
+            pl.from_pandas(
+                pd.DataFrame(
+                    self.scaler.inverse_transform(data=data[0].numpy().transpose(),
+                                                  features=self.meta['features']['target']),
+                    columns=self.meta['features']['target'].keys()
+                )
+            ).with_columns(t_timestamp=pl.Series(y.select('t_timestamp')))
+        ).select(['t_timestamp']+list(self.meta['features']['target'].keys()))
+        return (x,y,y_hat)
 
-        self.test_loader = DataLoader(
-            data=test_scaled,
+    def load_data(self,data: pl.DataFrame) -> DataLoader:
+        window_length = self.meta['shape']['input'][2]+self.meta['shape']['target'][2]
+        assert data.shape[0] >= window_length, f"Data input dimension should satisfy ({window_length},{len(self.scaler.features)+1}) inclusive of feature t_timestamp"
+        assert abs((self.scaler.inverse_transform(self.scaler.transform(data[0:window_length].drop('t_timestamp').to_numpy())) - data[0:window_length].drop('t_timestamp').to_numpy())).max() < 1e-7, f'Scaler coefficients are corrupted'
+
+        self.data = data
+
+        return DataLoader(
+            data=self.scaler.transform(data.drop('t_timestamp').to_numpy()),
             features=self.scaler.features,
-            input_width=PARAMS['dataloader']['window']['input_width'],
-            label_width=PARAMS['dataloader']['window']['label_width'],
+            input_width=self.meta['shape']['input'][2],
+            label_width=self.meta['shape']['target'][2],
             batch_size=1,
             shuffle=False,
-            name='test_loader'
+            name='data_loader'
         )
 
-        self.model = getattr(NETWORK, MODEL_CLASS)(
-            work_dir=self.path,
-            inputs_shape=self.test_loader.inputs_shape,
-            inputs_exo_shape=self.test_loader.inputs_exo_shape,
-            targets_shape = self.test_loader.targets_shape
-        )
 
-        self.model.load_state_dict(
-            torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'{self.model.name.lower()}.pytorch')),
-                       weights_only=True)
-        )
+    def predict(self, data: pl.DataFrame) -> Tuple[pl.DataFrame, ...]:
 
-    def predict(self, inputs: Any=None):
-        if inputs is None:
-            for i, data in enumerate(self.test_loader):
+        data_loader = self.load_data(data)
 
-                (index, inputs, inputs_exo, targets) = data.values()
+        for i, data_i in enumerate(data_loader):
 
-                with torch.no_grad():
-                    outputs = self.model(inputs, inputs_exo)
+            (index, inputs, inputs_exo, targets) = data_i.values()
 
-                x = self.data.select(['t_timestamp']+list(self.test_loader.meta.target_features.keys()))[index.item():index.item()+self.test_loader.meta.input_shape[2]]
-                y = self.data.select(['t_timestamp']+list(self.test_loader.meta.target_features.keys()))[index.item()+self.test_loader.meta.input_shape[2]:index.item()+self.test_loader.meta.input_shape[2]+self.test_loader.meta.target_shape[2]]
-                y_hat = (
-                    pl.from_pandas(
-                        pd.DataFrame(
-                            self.scaler.inverse_transform(data=outputs[0].numpy().transpose(),
-                                                          features=self.test_loader.meta.target_features),
-                            columns=self.test_loader.meta.target_features.keys()
-                        )
-                    ).with_columns(t_timestamp=pl.Series(y.select('t_timestamp')))
-                ).select(['t_timestamp']+list(self.test_loader.meta.target_features.keys()))
+            with torch.no_grad():
+                outputs = self.model(inputs, inputs_exo)
+                yield self.parse(i=i, data=outputs)
 
-                plot_aggregate(i=index.item(), x=x, y_hat=y_hat, y=y)
+
+
+                #plot_aggregate(i=index.item(), x=x, y_hat=y_hat, y=y)
 
                 #inputs_data = self.data.drop('t_timestamp')[index.item():index.item()+self.test_loader.inputs_shape[2]]
                 #target_data = self.data.drop('t_timestamp')[index.item()+self.test_loader.inputs_shape[2]:index.item()+self.test_loader.inputs_shape[2]+self.test_loader.inputs_exo_shape[2]]

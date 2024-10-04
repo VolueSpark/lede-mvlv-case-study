@@ -5,8 +5,7 @@ import re
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
-CIM_PATH = os.path.join(PATH, '../../data/geojson/raw/Lede_2024.09.19')
-TOPOLOGY_PATH = os.path.join(PATH, '../../data/topology/raw/lede-all-data.json')
+CIM_PATH = os.path.join(PATH, '../../data/cim/raw/Lede_2024.09.27')
 AMI_PATH = os.path.join(PATH, '../../data/ami/bronze')
 
 if __name__ == "__main__":
@@ -25,12 +24,6 @@ if __name__ == "__main__":
                         usagepoints_mrid.append(item['cim:IdentifiedObject.mRID'])
 
     print(f"{CIM_PATH} has {len(set(usagepoints_mrid))} unique usagepoints mrids")
-
-    with open(TOPOLOGY_PATH, 'r') as fp:
-        data = json.load(fp)
-        usagepoints_mrid = [usagepoint['mrid'] for usagepoint in data['result']['usagePoints']]
-
-    print(f"{TOPOLOGY_PATH} has {len(set(usagepoints_mrid))} unique usagepoints mrids")
 
     ami_meter_point_id = os.listdir(AMI_PATH)
 

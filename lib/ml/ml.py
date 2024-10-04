@@ -1,19 +1,14 @@
+import os, yaml, torch, re, json, socket, torcheval
+from torcheval import metrics
 from torch.utils.tensorboard import SummaryWriter
-from torcheval.metrics import MeanSquaredError
-import os, yaml, torch, re, json, socket
 from datetime import datetime
 from typing import Tuple
-import pyarrow as pa
-import pyarrow.parquet as pq
 from torch import nn
-import pandas as pd
 import polars as pl
 import numpy as np
-import time
 
-from lib.ml import Split, Scaler
+from lib.ml import Split, Scaler, decorate_train, decorator_epoch
 
-from lib import logger
 from lib.ml.dataloader import DataLoader
 from lib.price.insight import fetch_hist_spot
 from lib.price.valuta import fetch_hist_valuta
@@ -31,6 +26,45 @@ with open(os.path.join(PATH,'config.yaml')) as fp:
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+device = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+
+
+class Optimizer:
+    def __new__(cls, *args, **kwargs):
+        if 'params' not in kwargs:
+            raise ValueError('No model params specified')
+        optimizer_class = PARAMS['optimizer']['algorithm']
+        params = PARAMS['optimizer'][optimizer_class]['params']
+        return getattr(torch.optim, optimizer_class)(kwargs['params'], **params)
+
+
+class Loss:
+    def __init__(self, *args, **kwargs):
+        loss_class = PARAMS['loss']['function']
+        params = PARAMS['loss'][loss_class]['params']
+        self.obj = getattr(nn, loss_class)(**params)
+
+    def eval(self, x: torch.Tensor, y: torch.Tensor):
+        return self.obj(x, y)
+
+
+class Metric:
+    def __init__(self, *args, **kwargs):
+        metric_class = PARAMS['metric']['function']
+        params = PARAMS['metric'][metric_class]['params']
+        self.obj =  getattr(torcheval.metrics, metric_class)(**params)
+
+    def eval(self, x: torch.Tensor, y: torch.Tensor):
+        return self.obj.update(x.view(x.shape[1],x.shape[0]*x.shape[2]),
+                           y.view(y.shape[1],y.shape[0]*y.shape[2])).compute()
+
+
 class Ml:
 
     def __init__(
@@ -47,6 +81,7 @@ class Ml:
         self.artifacts_path = os.path.join(self.path, 'artifacts')
         self.bronze_data_path = os.path.join(self.path, 'data/bronze')
         self.silver_data_path = os.path.join(self.path, 'data/silver')
+        self.gold_data_path = os.path.join(self.path, 'data/gold')
 
         self.prepare_bronze_data()
         self.prepare_silver_data()
@@ -57,8 +92,27 @@ class Ml:
         os.makedirs(self.artifacts_path, exist_ok=True)
         os.makedirs(self.bronze_data_path, exist_ok=True)
         os.makedirs(self.silver_data_path, exist_ok=True)
+        os.makedirs(self.gold_data_path, exist_ok=True)
 
-        self.create()
+        # load the data
+        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'data.parquet'))
+
+        # create the dnn
+        self.model = getattr(NETWORK, MODEL_CLASS)(
+            inputs_shape=self.train_loader.inputs_shape,
+            inputs_exo_shape=self.train_loader.inputs_exo_shape,
+            targets_shape=self.train_loader.targets_shape
+        )
+
+        # tensor graph visualization
+        (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
+        self.writer.add_graph(model=self.model, input_to_model=(inputs, inputs_exo))
+
+        self.epoch_cnt = PARAMS['num_epochs']
+        self.optimizer = Optimizer(params=self.model.parameters())
+        self.loss = Loss()
+        self.metric = Metric()
+
 
     def prepare_bronze_data(self):
 
@@ -155,7 +209,7 @@ class Ml:
         data = pl.read_parquet(data_path)
 
         # split data. features excluding time frame, test untouched
-        features, train, val, test = Split(data=data, split=PARAMS['split'])
+        features, train, val, test = Split(data=data, split=PARAMS['dataloader']['split'])
 
         # scale train and validation data
         scaler = Scaler()
@@ -185,129 +239,58 @@ class Ml:
         )
 
         # save artifacts
-        scaler.save(os.path.join(self.artifacts_path, 'dataset_scaler.pkl'))
-        test.write_parquet(os.path.join(self.artifacts_path, 'dataset_test.parquet'))
+        scaler.save(pickle_path=self.artifacts_path)
+        test.write_parquet(os.path.join(self.gold_data_path, 'test.parquet'))
 
         return train_loader, val_loader
 
-    def create(self):
+    @decorator_epoch
+    def epoch_training(self, epoch_i: int) -> Tuple[str, int, float, float]:
+        self.model.train()
+        for i, data in enumerate(self.train_loader):
+            (_, inputs, inputs_exo, targets) = data.values()
 
-        logger.info(f"Loading {MODEL_CLASS} model at working direction {self.path}")
+            self.optimizer.zero_grad()
 
-        # load the data
-        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'data.parquet'))
+            outputs = self.model.forward(
+                inputs=inputs,
+                inputs_exo=inputs_exo
+            )
 
-        # create the dnn
-        self.model = getattr(NETWORK, MODEL_CLASS)(
-            work_dir=self.path,
-            inputs_shape=self.train_loader.inputs_shape,
-            inputs_exo_shape=self.train_loader.inputs_exo_shape,
-            targets_shape = self.train_loader.targets_shape
-        )
+            loss = self.loss.eval(outputs, targets)
+            acc = self.metric.eval(outputs, targets)
 
-        # tensor graph visualization
-        (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
-        self.writer.add_graph(model=self.model, input_to_model=(inputs, inputs_exo))
+            loss.backward()
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=PARAMS['learning_rate'])
-        self.loss_fn = nn.HuberLoss(reduction='mean')
-        self.acc_fn = MeanSquaredError()
+            self.optimizer.step()
 
+            yield (epoch_i*self.train_loader.meta.loader_depth + i, loss.item(), acc.item())
+
+    @decorator_epoch
+    def epoch_validation(self, epoch_i: int) -> Tuple[str, int, float, float]:
+        self.model.eval()
+
+        with torch.no_grad():
+            for i, data in enumerate(self.val_loader):
+                (_, inputs, inputs_exo, targets) = data.values()
+
+                outputs = self.model(inputs, inputs_exo)
+
+                loss = self.loss.eval(outputs, targets)
+                acc = self.metric.eval(outputs, targets)
+
+                yield (epoch_i*self.val_loader.meta.loader_depth + i, loss.item(), acc.item())
+
+    @decorate_train
     def train(self):
 
-        train_idx = 0
-        val_idx = 0
+        for epoch_i in range(self.epoch_cnt):
 
-        epoch_ave_vloss = np.nan
-        epoch_ave_vacc = np.nan
+            (ave_loss, ave_acc) = self.epoch_training(epoch_i=epoch_i)
 
-        for epoch_i in range(PARAMS['num_epochs']):
-            t0_epoch = time.time()
-            self.model.train()
+            (ave_vloss, ave_vacc) = self.epoch_validation(epoch_i=epoch_i)
 
-            epoch_ave_loss = 0
-            epoch_ave_acc = 0
-
-            t0 = time.time()
-
-            for train_i, train_data in enumerate(self.train_loader):
-
-                (_, inputs, inputs_exo, targets) = train_data.values()
-
-                self.optimizer.zero_grad()
-
-                outputs = self.model.forward(
-                    inputs=inputs,
-                    inputs_exo=inputs_exo
-                )
-
-                loss = self.loss_fn(outputs, targets)
-                acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
-                                         targets.view(targets.shape[1],targets.shape[0]*targets.shape[2])).compute()
-
-                loss.backward()
-
-                self.optimizer.step()
-
-                epoch_ave_loss = (loss.item() + train_i*epoch_ave_loss)/(train_i+1)
-                epoch_ave_acc = (acc.item() + train_i*epoch_ave_acc)/(train_i+1)
-
-                # TODO some verbose / logging to be improved
-                self.writer.add_scalar('Loss/train', loss.item(), train_idx)
-                self.writer.add_scalar('Acc/train', acc.item(), train_idx)
-                train_idx +=1
-
-                train_it_per_sec = train_i/(time.time()-t0)
-                logger.info(f"\033[F\rEPOCH {(epoch_i+1)/PARAMS['num_epochs']*100:.0f}% ({epoch_i+1}/{PARAMS['num_epochs']}) [{time.time() - t0_epoch:.3f} sec]|TRAIN {(train_i+1)/self.train_loader.meta.loader_depth*100:.0f}% ({train_i+1}/{self.train_loader.meta.loader_depth}): loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} [{train_it_per_sec:.4f} it/sec]|VAL {0}%: val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f} [- it/sec]",end='', color=logger.BLUE)
-                # TODO end
-
-            self.model.eval()
-
-            epoch_ave_vloss = 0
-            epoch_ave_vacc = 0
-
-            with torch.no_grad():
-                t0 = time.time()
-                for val_i, val_data in enumerate(self.val_loader):
-                    (_, inputs, inputs_exo, targets) = val_data.values()
-
-                    outputs = self.model(inputs, inputs_exo)
-
-                    loss = self.loss_fn(outputs, targets)
-                    acc = self.acc_fn.update(outputs.view(outputs.shape[1],outputs.shape[0]*outputs.shape[2]),
-                                             targets.view(targets.shape[1],targets.shape[0]*targets.shape[2])).compute()
-
-                    epoch_ave_vloss = (loss.item() + val_i*epoch_ave_vloss)/(val_i+1)
-                    epoch_ave_vacc = (acc.item() + val_i*epoch_ave_vacc)/(val_i+1)
-
-                    # TODO some verbose / logging to be improved
-                    self.writer.add_scalar('Loss/val', loss.item(), val_idx)
-                    self.writer.add_scalar('Acc/val', acc.item(), val_idx)
-                    val_idx +=1
-
-                    val_it_per_sec = val_i/(time.time()-t0)
-                    logger.info(f"\033[F\rEPOCH {(epoch_i+1)/PARAMS['num_epochs']*100:.0f}% ({epoch_i+1}/{PARAMS['num_epochs']}) [{time.time() - t0_epoch:.3f} sec]|TRAIN {(train_i+1)/self.train_loader.meta.loader_depth*100:.0f}% ({train_i+1}/{self.train_loader.meta.loader_depth}): loss={epoch_ave_loss:.4f} - acc={epoch_ave_acc:.4f} [{train_it_per_sec:.4f} it/sec]|VAL {(val_i+1)/self.val_loader.meta.loader_depth*100:.0f}% ({val_i+1}/{self.val_loader.meta.loader_depth}): val_loss={epoch_ave_vloss:.4f} - val_acc={epoch_ave_vacc:.4f} [{val_it_per_sec:.4f} it/sec]",end='', color=logger.BLUE)
-
-                logger.info('')
-
-            self.writer.add_scalars('Loss/epoch', {'train': epoch_ave_loss, 'val': epoch_ave_vloss}, epoch_i)
-            self.writer.add_scalars('Acc/epoch', {'train': epoch_ave_acc, 'val': epoch_ave_vacc}, epoch_i)
-            # TODO end
-
-        model_path = os.path.join(self.artifacts_path, f'{self.model.name.lower()}.pytorch')
-        torch.save(self.model.state_dict(), model_path)
-
-        logger.info(f'Pytorch model saved to: {model_path}')
-
-
-
-
-
-
-
-
-
-
+            yield (epoch_i, ave_loss, ave_acc, ave_vloss, ave_vacc)
 
 
 

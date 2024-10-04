@@ -41,16 +41,16 @@ class CustomServer(tb.program.TensorBoardServer):
 UUID = '59f5db7a-a41d-5166-90d8-207ca87fecc6'
 if __name__ == "__main__":
 
-    m = Ml(
+    ml = Ml(
         root=WORK_PATH,
         uuid=UUID
     )
 
-    th1 = Thread(target=m.train)
+    th1 = Thread(target=ml.train)
     th1.start()
 
     program = tb.program.TensorBoard(server_class=CustomServer)
-    program.configure(logdir=m.tensorboard_path, load_fast=True)
+    program.configure(logdir=ml.tensorboard_path, load_fast=True)
     program.main()
 
 

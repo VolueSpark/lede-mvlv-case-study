@@ -37,7 +37,7 @@ class WidowGenerator(torch.utils.data.Dataset):
         self.total_window_length = input_width + label_width
 
     def __len__(self):
-        return len(self.data) - self.total_window_length +1
+        return len(self.data) - self.total_window_length + 1
 
     def __getitem__(self, idx):
         window = self.data[idx:idx + self.total_window_length]

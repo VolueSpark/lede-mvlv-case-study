@@ -12,7 +12,7 @@ lock = Lock()
 
 class bcolors:
     DEBUG = '\u001b[48;5;11m\u001b[38;5;0m'
-    INFO = '\033[32m'
+    INFO = '\033[30m'
     NOTICE = '\033[94m'
     WARNING = '\033[93m'
     EXCEPTION = '\033[91m'

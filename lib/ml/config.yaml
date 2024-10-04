@@ -13,11 +13,45 @@
     {
       sparknet:
         {
-          num_epochs: 1,
-          learning_rate: 0.0001,
-          split: [0.8, 0.9],
+          num_epochs: 15,
+          optimizer:
+            {
+              algorithm: 'Adam',
+              Adam:
+                {
+                  params:
+                    {
+                      lr: 0.001,
+                      betas: [0.9, 0.999]
+                    }
+                },
+            },
+          loss:
+            {
+              function: 'HuberLoss',
+              HuberLoss:
+                {
+                  params:
+                    {
+                      reduction: 'mean',
+                      delta: 0.1
+                    }
+                },
+            },
+          metric:
+            {
+              function: 'MeanSquaredError',
+              MeanSquaredError:
+                {
+                  params:
+                    {
+                      multioutput: 'uniform_average'
+                    },
+                },
+            },
           dataloader:
             {
+              split: [0.8, 0.9],
               window:
                 {
                   input_width: 48,
