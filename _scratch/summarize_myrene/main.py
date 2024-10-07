@@ -10,13 +10,19 @@ REGION_PATH = os.path.join(PATH, '../../data/topology/raw/region')
 
 if __name__ == "__main__":
 
+    usagepoints = []
+
     topology_list = os.listdir(TOPOLOGY_PATH)
     region_list = os.listdir(REGION_PATH)
 
     region_usagepoints = []
-    with open(os.path.join(REGION_PATH, region_list[0]), 'r') as f:
-        region_data = json.load(f)
-    region_usagepoints.extend(region_data['usagePoints'])
+    for region in region_list:
+        with open(os.path.join(REGION_PATH, region), 'r') as f:
+            region_data = json.load(f)
+            region_usagepoints.extend(region_data['usagePoints'])
+
+            for usagepoint in region_data['usagePoints']:
+                usagepoints.append(usagepoint)
 
     topology_usagepoints = []
     for topology in topology_list:
@@ -24,5 +30,13 @@ if __name__ == "__main__":
             topology_data = json.load(f)
             topology_usagepoints.extend(topology_data['usagePoints'])
 
-    print(f"MV net has {len(region_usagepoints)} usage points")
-    print(f"LV net has {len(topology_usagepoints)} usage points")
+            for usagepoint in topology_data['usagePoints']:
+                usagepoints.append(usagepoint)
+
+    usagepoints = pl.from_dicts(usagepoints)
+    usagepoints.write_parquet(os.path.join(PATH,'usagepoints.parquet'))
+
+    print(f"Detected {usagepoints.n_unique('meterPointId')} meter point id's allocated to {usagepoints.n_unique('conformLoadId')} unique conform loads")
+
+
+

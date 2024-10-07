@@ -67,9 +67,8 @@ class GhostNodes(BaseModel):
 #
 class ConnectivityNode(BaseModel):
     # pandapower bus entity
-    bus: str = Field(
-        alias='mrid'
-    )
+    mrid: str
+
     # bus voltage spesification in base unit (volts)
     rated_kv: float = Field(
         alias='voltageLevel',

@@ -2,7 +2,7 @@ import re, json, shutil, os
 
 
 from lib import logger
-from lib.lfa import LfaValidation
+from lib.lfa.lfa import LfaValidation
 from lib.lfa.topology import Topology
 
 PATH = os.path.dirname(__file__)
@@ -28,39 +28,45 @@ if __name__ == "__main__":
     os.makedirs(SILVER_LV_PATH, exist_ok=True)
 
     mv_file_list = os.listdir(BRONZE_MV_PATH)
-    assert len(mv_file_list) == 1, f'Medium voltage are exceeding the expected quantity of one'
-    mv_file = os.path.join(BRONZE_MV_PATH, mv_file_list[0])
 
     exceptions_log =[]
-    with open(mv_file, 'r') as fp:
-        try:
-            mv_topology = Topology(**json.load(fp))
-            slack_bus = mv_topology.slack[0].bus
-            mv_topology_trafo = [trafo for trafo in mv_topology.trafo if trafo.hv_bus in slack_bus]
-            mv_topology_trafo[0].in_service = True
-        except Exception as e:
-            logger.exception(f'[{mv_file}({1} of {len(mv_file_list)})] exception raised. [{e}]')
-            exceptions_log.append(f'[{mv_file}({1} of {len(mv_file_list)})] exception raised. [{e}]')
-    mv_trafo_list = [trafo.mrid for trafo in mv_topology.trafo]
+
+    mv_trafo_dict={}
+    mv_topology_list=[]
+    for index, mv_file in enumerate(mv_file_list):
+        with open(os.path.join(BRONZE_MV_PATH, mv_file), 'r') as fp:
+            try:
+                print(mv_file)
+                mv_topology = Topology(**json.load(fp))
+                slack_bus = mv_topology.slack[0].mrid
+                mv_topology_trafo = [trafo for trafo in mv_topology.trafo if trafo.hv_bus.mrid == slack_bus]
+                mv_topology_trafo[0].in_service = True
+                mv_trafo_dict |= {trafo.mrid:trafo for trafo in mv_topology.trafo}
+
+            except Exception as e:
+                logger.exception(f'[{mv_file}({index} of {len(mv_file_list)})] exception raised. [{e}]')
+                exceptions_log.append(f'[{mv_file}({index} of {len(mv_file_list)})] exception raised. [{e}]')
+            else:
+                mv_topology_list.append(mv_topology)
 
     lv_file_list = os.listdir(BRONZE_LV_PATH)
     lv_trafo_list =[]
     for index, lv_file in enumerate(lv_file_list):
         with open(os.path.join(BRONZE_LV_PATH, lv_file), 'r') as fp:
             try:
-                lv_topology = Topology(**json.load(fp))
+                data = json.load(fp)
+                lv_topology = Topology(**data)#Topology(**json.load(fp))
 
-                if not bool(len(lv_topology.load)):
-                    raise Exception(f'[{index+1}] topology {lv_topology.uuid} has no loads and will be discarded for lfa')
-                if lv_topology.trafo[0].mrid not in mv_trafo_list:
-                    raise Exception(f'[{index+1}] topology {lv_topology.uuid} trafo mrid is not found in the mv layer')
+                if not len(lv_topology.load):
+                    raise Exception(f'{lv_topology.uuid} has no loads  and will be discarded')
+                if lv_topology.trafo[0].mrid not in mv_trafo_dict.keys():
+                    raise Exception(f'topology {lv_topology.uuid} trafo mrid is not found in the mv layer')
 
                 LfaValidation(topology=lv_topology).validate
 
                 lv_trafo = lv_topology.trafo[0]
-                mv_trafo = [mv_trafo for mv_trafo in mv_topology.trafo if mv_trafo.mrid == lv_trafo.mrid ][0]
+                mv_trafo = mv_trafo_dict[lv_trafo.mrid]
 
-                mv_trafo.uuid = lv_trafo.uuid
                 lv_trafo.in_service = mv_trafo.in_service = True
                 lv_trafo_list.append({'nbhd_id':lv_topology.uuid, 'trafo_mrid':lv_trafo.mrid})
 
@@ -73,8 +79,9 @@ if __name__ == "__main__":
                 logger.exception(msg)
                 exceptions_log.append(msg)
 
-    with open(os.path.join(SILVER_MV_PATH, mv_topology.uuid), 'w') as fp:
-        json.dump(mv_topology.dict(), fp)
+    for mv_topology in mv_topology_list:
+        with open(os.path.join(SILVER_MV_PATH, mv_topology.uuid), 'w') as fp:
+            json.dump(mv_topology.dict(), fp)
 
     with open(os.path.join(SILVER_PATH, 'exceptions.json'), 'w') as fp:
         json.dump(exceptions_log, fp)

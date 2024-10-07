@@ -18,61 +18,77 @@ from lib.lfa.topology import (
     GhostNodes
 )
 
+from lib.lfa.dataloader import DataLoader
 from lib import logger, decorator_timer
+
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
 
-def pp_bus(bus: str, net: pp.pandapowerNet):
-    try:
-        return net.bus.loc[net.bus['name'] == bus].index.item()
-    except Exception as e:
-        if len(net.bus.loc[net.bus['name'] == bus])==0:
-            # add out-of service bus
-            return create_bus(bus=ConnectivityNode(bus=bus, rated_kv=net.bus['vn_kv'].min(), in_service=False), net=net)
-        raise Exception(f"pp_bus raised exception for unresolved {len(net.bus.loc[net.bus['name'] == bus])} entries of bus={bus} detected net")
+def pp_bus(bus: Any, net: pp.pandapowerNet, rated_kv: float=0):
+
+    if type(bus) is str:
+        if net.bus.loc[net.bus['mrid'] == bus].shape[0] == 1:
+            return net.bus.loc[net.bus['mrid'] == bus].index.item()
+        raise Exception(f"pp_bus raised exception for unresolved {len(net.bus.loc[net.bus['mrid'] == bus])} entries of bus={bus} detected net")
+
+    if type(bus) is ConnectivityNode:
+        if net.bus.loc[net.bus['mrid'] == bus.mrid].shape[0] == 1:
+            return net.bus.loc[net.bus['mrid'] == bus.mrid].index.item()
+        if net.bus.loc[net.bus['mrid'] == bus].shape[0] == 0:
+            logger.warning(f'Bus mrid {bus.mrid} cannot be not resolved in pandapower net model. Add an artificual out-of-service bus.')
+            return create_bus(
+                bus=ConnectivityNode(
+                    mrid=bus.mrid,
+                    rated_kv=bus.rated_kv
+                ),
+                net=net
+            )
+        raise Exception(f"pp_bus raised exception for unresolved bus creation entries for bus={bus.mrid} detected net")
 
 
 def create_bus(bus: ConnectivityNode, net: pp.pandapowerNet):
-    if bus.bus not in net.bus['name']:
+    if (not 'mrid' in net.bus.keys()) or (bus.mrid not in net.bus['mrid']):
         return pp.create_bus(
             net,
-            name=bus.bus,
+            name=f'bus_{bus.mrid}',
+            mrid=bus.mrid,
             type='n',
             vn_kv=bus.rated_kv,
-            in_service=bus.in_service
+            in_service=bool(bus.rated_kv)
         )
+
     else:
-        raise Exception(f'create_bus raised exception for multiple entries of bus={bus.bus} in net')
+        raise Exception(f'create_bus raised exception for multiple entries of bus={bus.mrid} in net')
 
 
 def create_ext_grid(bus: ConnectivityNode, net: pp.pandapowerNet):
     create_bus(bus=bus, net=net)
-    if bus.bus not in net.ext_grid['name']:
+    if (not 'mrid' in net.ext_grid.keys()) or (bus.mrid not in net.ext_grid['mrid']):
         pp.create_ext_grid(
             net,
-            name=bus.bus,
+            name=f'slack_{bus.mrid}',
+            mrid=bus.mrid,
             vm_pu=1.0,
-            bus=pp_bus(bus=bus.bus, net=net)
+            bus=pp_bus(bus=bus.mrid, net=net)
         )
     else:
-        raise Exception(f'create_ext_grid raised exception for multiple external grid entries of bus={bus.bus} in net')
+        raise Exception(f'create_ext_grid raised exception for multiple external grid entries of bus={bus.mrid} in net')
 
 
 def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: bool=None):
-    if trafo.name not in net.trafo['name']:
+    if (not 'mrid' in net.trafo.keys()) or (trafo.mrid not in net.trafo['mrid']):
         if trafo.is_3w_trafo:
             pp.create_transformers3w_from_parameters(
                 net,
-                name=trafo.name,
+                name=f'trafo_{trafo.name}',
                 mrid=trafo.mrid,
-                uuid=trafo.uuid,
                 hv_buses=[pp_bus(bus=trafo.hv_bus, net=net)],
                 mv_buses=[pp_bus(bus=trafo.mv_bus, net=net)],
                 lv_buses=[pp_bus(bus=trafo.lv_bus, net=net)],
-                vn_hv_kv=trafo.vn_hv_kv,
-                vn_mv_kv=trafo.vn_mv_kv,
-                vn_lv_kv=trafo.vn_lv_kv,
+                vn_hv_kv=trafo.hv_bus.rated_kv,
+                vn_mv_kv=trafo.mv_bus.rated_kv,
+                vn_lv_kv=trafo.lv_bus.rated_kv,
                 sn_hv_mva=trafo.sn_mva, # TODO Verify number
                 sn_mv_mva=trafo.sn_mva, # TODO Verify number
                 sn_lv_mva=trafo.sn_mva, # TODO Verify number
@@ -89,13 +105,12 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: boo
         else:
             pp.create_transformer_from_parameters(
                 net,
-                name=trafo.name,
+                name=f'trafo_{trafo.name}',
                 mrid=trafo.mrid,
-                uuid=trafo.uuid,
                 hv_bus=pp_bus(bus=trafo.hv_bus, net=net),
                 lv_bus=pp_bus(bus=trafo.lv_bus, net=net),
-                vn_hv_kv=trafo.vn_hv_kv,
-                vn_lv_kv=trafo.vn_lv_kv,
+                vn_hv_kv=trafo.hv_bus.rated_kv,
+                vn_lv_kv=trafo.lv_bus.rated_kv,
                 sn_mva=trafo.sn_mva,
                 vkr_percent=5,  # TODO Verify number
                 vk_percent=10,  # TODO Verify number
@@ -109,10 +124,10 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: boo
 
 def create_branch(branch: AcLineSegment, net: pp.pandapowerNet):
     if branch.has_impedance:
-        if branch.name not in net.line['name']:
+        if (not 'mrid' in net.line.keys()) or (branch.mrid not in net.line['mrid']):
             pp.create_line_from_parameters(
                 net,
-                name=branch.name,
+                name=f'branch_{branch.name}',
                 mrid=branch.mrid,
                 from_bus=pp_bus(bus=branch.from_bus, net=net),
                 to_bus=pp_bus(bus=branch.to_bus, net=net),
@@ -132,10 +147,10 @@ def create_branch(branch: AcLineSegment, net: pp.pandapowerNet):
 
 
 def create_switch(element: Any, net: pp.pandapowerNet):
-    if type(element) in [Switch, AcLineSegment] and element.mrid not in net.switch['name']:
+    if (type(element) in [Switch, AcLineSegment] and (not 'mrid' in net.switch.keys() or element.mrid not in net.switch['mrid'])):
         pp.create_switch(
             net,
-            name=element.name,
+            name=f'switch_{element.name}',
             mrid=element.mrid,
             bus=pp_bus(bus=element.from_bus, net=net),
             element=pp_bus(bus=element.to_bus, net=net),
@@ -208,88 +223,6 @@ class LfaValidation:
             logger.exception(f'topology {self.net.name} failed so pass zero load-profile analysis')
 
 
-class DataLoader():
-    def __init__(
-            self,
-            lv_path: str,
-            data_path: str,
-            work_path: str
-    ):
-
-        self.data_path = os.path.join(work_path, 'data')
-        os.makedirs(self.data_path, exist_ok=True)
-
-        topology_list = os.listdir(lv_path)
-        metadata = pl.DataFrame()
-        for j, topology_j in enumerate(topology_list):
-            if not os.path.exists(os.path.join(work_path, 'data', f"{topology_j}.parquet")):
-                with open(os.path.join(lv_path, topology_j), 'r') as fp:
-
-                    meter_list = {load['meter_id']:load['cfl_mrid'] for load in json.load(fp)['load']}
-
-                    df = pl.DataFrame()
-                    for i, (meter_i, cfl_mrid_i) in enumerate(meter_list.items()):
-                        if os.path.exists(os.path.join(data_path, meter_i)):
-                            df = df.vstack(pl.read_parquet(os.path.join(data_path, meter_i)).with_columns(pl.lit(cfl_mrid_i).alias('cfl_mrid')))
-                        else:
-                            logger.warning(f"[meter {i+1} of {len(meter_list)}] {topology_j} has no data for meter {meter_i}")
-
-                    if df.shape[0]:
-                        df=(
-                            df.with_columns(((pl.col('p_kwh_out') - pl.col('p_kwh_in')) / 1e3).alias('p_mw'),
-                                            ((pl.col('q_kvarh_out') - pl.col('q_kvarh_in')) / 1e3).alias('q_mvar'))
-                            .drop('p_kwh_in', 'p_kwh_out', 'q_kvarh_in', 'q_kvarh_out')
-                        )
-
-                        metadata = metadata.vstack(
-                            df.select('meter_id', 'cfl_mrid').unique().join(
-                            (
-                                df.group_by('meter_id')
-                                .agg(
-                                    (pl.col('p_mw').min() * 1000).round(1).alias('p_kw_min'),
-                                    (pl.col('p_mw').max() * 1000).round(1).alias('p_kw_max'),
-                                    (pl.col('p_mw').mean() * 1000).round(1).alias('p_kw_mean'),
-                                    (pl.col('q_mvar').min() * 1000).round(1).alias('q_kvar_min'),
-                                    (pl.col('q_mvar').max() * 1000).round(1).alias('q_kvar_max'),
-                                    (pl.col('q_mvar').mean() * 1000).round(1).alias('q_kvar_mean'),
-                                    pl.lit(topology_j).alias('uuid')
-                                ).select('uuid', 'meter_id', 'p_kw_min', 'p_kw_mean', 'p_kw_max', 'q_kvar_min', 'q_kvar_mean', 'q_kvar_max')
-                            ), on='meter_id', validate='1:1')
-                        )
-
-                        df.write_parquet(os.path.join(self.data_path, f"{topology_j}.parquet"))
-
-                        logger.info(f"[topology {j+1} of {len(topology_list)}] {topology_j} has been processed with {df.n_unique('meter_id')} unique meters")
-                    else:
-                        logger.exception(f"[topology {j+1} of {len(topology_list)}] {topology_j} has no available data")
-
-        if not metadata.is_empty():
-            metadata.write_parquet(os.path.join(work_path, f"metadata.parquet"))
-
-    def load_profile_iter(
-            self,
-            from_date: datetime,
-            to_date: datetime = None,
-            step_every=1
-    ):
-        if to_date is None:
-            to_date = from_date
-
-        data_list = os.listdir(self.data_path)
-        data = pl.DataFrame()
-        for data_file in data_list:
-            data = data.vstack(
-                pl.read_parquet(os.path.join(self.data_path, data_file))
-                .filter(
-                    pl.col('datetime').is_between(from_date, to_date)
-                )
-            )
-
-        # pl.read_parquet(self.data_path).group_by('meter_id').agg(peak_s_mva=pl.col('s_mva').max()).sort(by='peak_s_mva', descending=True)
-        for batch in data.sort('datetime', descending=False).group_by_dynamic('datetime', every=f'{step_every}h', period=f'1h'):
-            yield batch[1]
-
-
 class Lfa(DataLoader):
     def __init__(
             self,
@@ -311,7 +244,7 @@ class Lfa(DataLoader):
         self.net = self.read_net()
 
     @decorator_timer
-    def create_net(self, lv: List[Topology], mv: Topology) -> pp.pandapowerNet:
+    def create_net(self, lv: List[Topology], mv: List[Topology]) -> pp.pandapowerNet:
 
         logger.debug(msg=f'Creating subnet for mv topology: {mv.uuid}')
 
@@ -327,7 +260,7 @@ class Lfa(DataLoader):
             for lv_bus in lv_i.bus:
                 create_bus(bus=lv_bus, net=net)
 
-        # slack busses
+        # slack buses
         for i, mv_slack_bus in enumerate(mv.slack):
             logger.debug(msg=f'compile mv slack bus {i + 1} for bus {mv_slack_bus}')
             create_ext_grid(bus=mv_slack_bus, net=net)
@@ -391,7 +324,7 @@ class Lfa(DataLoader):
 
         net = self.create_net(
             lv=[read(topology_path=os.path.join(self.lv_path, lv_name)) for lv_name in os.listdir(self.lv_path)],
-            mv=read(topology_path=os.path.join(self.mv_path, os.listdir(self.mv_path)[0]))
+            mv=[read(topology_path=os.path.join(self.mv_path, mv_name)) for mv_name in os.listdir(self.mv_path)]
         )
 
         try:
