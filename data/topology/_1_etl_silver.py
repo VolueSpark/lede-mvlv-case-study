@@ -31,60 +31,59 @@ if __name__ == "__main__":
 
     exceptions_log =[]
 
-    mv_trafo_dict={}
-    mv_topology_list=[]
+    mv_topology_dict={}
     for index, mv_file in enumerate(mv_file_list):
         with open(os.path.join(BRONZE_MV_PATH, mv_file), 'r') as fp:
             try:
-                print(mv_file)
                 mv_topology = Topology(**json.load(fp))
-                slack_bus = mv_topology.slack[0].mrid
-                mv_topology_trafo = [trafo for trafo in mv_topology.trafo if trafo.hv_bus.mrid == slack_bus]
-                mv_topology_trafo[0].in_service = True
-                mv_trafo_dict |= {trafo.mrid:trafo for trafo in mv_topology.trafo}
-
+                for mv_trafo in mv_topology.trafo:
+                    if mv_trafo.hv_bus.mrid == mv_topology.slack[0].mrid:
+                        mv_trafo.in_service = True
+                mv_topology_dict[mv_topology.uuid] = mv_topology
+                #{trafo.mrid:trafo.in_service for trafo in mv_topology.trafo if trafo.hv_bus.mrid == mv_topology.slack[0].mrid}
             except Exception as e:
                 logger.exception(f'[{mv_file}({index} of {len(mv_file_list)})] exception raised. [{e}]')
                 exceptions_log.append(f'[{mv_file}({index} of {len(mv_file_list)})] exception raised. [{e}]')
-            else:
-                mv_topology_list.append(mv_topology)
 
     lv_file_list = os.listdir(BRONZE_LV_PATH)
-    lv_trafo_list =[]
+    successful_validated = 0
+    failed_validated = 0
     for index, lv_file in enumerate(lv_file_list):
+
         with open(os.path.join(BRONZE_LV_PATH, lv_file), 'r') as fp:
             try:
-                data = json.load(fp)
-                lv_topology = Topology(**data)#Topology(**json.load(fp))
+                lv_topology = Topology(**json.load(fp))
 
                 if not len(lv_topology.load):
                     raise Exception(f'{lv_topology.uuid} has no loads  and will be discarded')
-                if lv_topology.trafo[0].mrid not in mv_trafo_dict.keys():
-                    raise Exception(f'topology {lv_topology.uuid} trafo mrid is not found in the mv layer')
+
+                for uuid in mv_topology_dict.keys():
+                    for mv_trafo in mv_topology_dict[uuid].trafo:
+                        if lv_topology.trafo[0].mrid == mv_trafo.mrid:
+                            logger.info(f'[{lv_file} ({index+1} of {len(lv_file_list)})] lv_trafo.mrid={lv_topology.trafo[0].mrid} associated with mv.uuid={uuid}')
+                            lv_topology.trafo[0].in_service = True
+                            mv_trafo.in_service = True
+
+                if not lv_topology.trafo[0].in_service:
+                    raise Exception(f'topology.uuid={lv_topology.uuid} trafo.mrid={lv_topology.trafo[0].mrid} is not in service')
 
                 LfaValidation(topology=lv_topology).validate
 
-                lv_trafo = lv_topology.trafo[0]
-                mv_trafo = mv_trafo_dict[lv_trafo.mrid]
-
-                lv_trafo.in_service = mv_trafo.in_service = True
-                lv_trafo_list.append({'nbhd_id':lv_topology.uuid, 'trafo_mrid':lv_trafo.mrid})
-
                 with open(os.path.join(SILVER_LV_PATH, lv_topology.uuid), 'w') as fp:
+                    successful_validated+=1
                     json.dump(lv_topology.dict(), fp)
-                    logger.info(f'[{lv_file}({index} of {len(lv_file_list)})] successfully validated.' )
+                    logger.info(f'[{lv_file} ({index+1} of {len(lv_file_list)})] {successful_validated} successfully validated.' )
 
             except Exception as e:
-                msg = f'{len(exceptions_log)+1}. Exception raised for {lv_file} ({index} of {len(lv_file_list)} of {lv_topology.__class__.__name__}) [{e}]'
-                logger.exception(msg)
-                exceptions_log.append(msg)
+                failed_validated+=1
+                logger.exception(f'[{lv_file} ({index+1} of {len(lv_file_list)})] {failed_validated} failed validation.' )
+                exceptions_log.append(f'{len(exceptions_log)+1}. Exception raised for {lv_file} ({index} of {len(lv_file_list)} of {lv_topology.__class__.__name__}) [{e}]')
 
-    for mv_topology in mv_topology_list:
+    for uuid, mv_topology in mv_topology_dict.items():
         with open(os.path.join(SILVER_MV_PATH, mv_topology.uuid), 'w') as fp:
             json.dump(mv_topology.dict(), fp)
 
     with open(os.path.join(SILVER_PATH, 'exceptions.json'), 'w') as fp:
         json.dump(exceptions_log, fp)
 
-    logger.info(f'{len(lv_trafo_list)} of {len(lv_file_list)} LV topologies could be validated via LFA')
 

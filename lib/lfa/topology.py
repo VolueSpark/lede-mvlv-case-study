@@ -45,7 +45,7 @@ class AcLineSegment(BaseModel):
     # validate for line impedance
     @property
     def has_impedance(self):
-        return (self.r > 0) or (self.x > 0)
+        return (self.r > 1e-4) or (self.x > 1e-4)
 
 
 class Switch(BaseModel):
@@ -67,9 +67,6 @@ class PowerTransformer(BaseModel):
     mrid: str
     end: List[PowerTransformerEnd]
     name: str
-    uuid: Optional[str] = Field(
-        default=''
-    )
     # 2W/3W high voltage bus
     hv_bus: Optional[ConnectivityNode] = Field(
         default=ConnectivityNode()
@@ -114,7 +111,7 @@ class Topology(BaseModel):
         #
         # validation for vanilla topology
         #
-        if not  len(self.trafo):
+        if not len(self.trafo):
             raise Exception(f'{self.uuid} has zero trafo entries and will be discarded')
         if not len(self.switch):
             raise Exception(f'{self.uuid} has zero switch entries and will be discarded')
@@ -157,13 +154,12 @@ class Topology(BaseModel):
                 )
             trafo.sn_mva = end['rated_kva'].max() / 1000.0
 
-            try:
-                assert trafo.hv_bus.rated_kv > trafo.lv_bus.rated_kv > 0, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending voltage'
-                assert trafo.sn_mva > 0, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo capacity'
-                if trafo.is_3w_trafo:
-                    assert trafo.hv_bus.rated_kv > trafo.mv_bus.rated_kv > trafo.lv_bus.rated_kv > 0, f'{trafo.__class__} mrid={trafo.mrid} raised exception due to unresolved trafo ending voltage'
-            except AssertionError as e:
-                raise Exception(f'{self.__class__.__name__} raise assertion error. {e}')
+            if not (trafo.hv_bus.rated_kv > trafo.lv_bus.rated_kv > 0):
+                raise Exception(f'topology={self.uuid}, trafo.mrid={trafo.mrid} violate rated voltage levels')
+            if not trafo.sn_mva > 0:
+                raise Exception(f'topology={self.uuid}, trafo.mrid={trafo.mrid} violate rated capacity level levels')
+            if trafo.is_3w_trafo and not (trafo.hv_bus.rated_kv > trafo.mv_bus.rated_kv > trafo.lv_bus.rated_kv > 0):
+                raise Exception(f'topology={self.uuid}, trafo.mrid={trafo.mrid} violate rated voltage levels')
 
         #
         # validation of bus voltage values, purging
@@ -184,12 +180,8 @@ class Topology(BaseModel):
             if bus.rated_kv == 0:
 
                 logger.info(f'topology={self.uuid} with bus mrid={bus.mrid} has unspesified rated_kv={bus.rated_kv} and will be resolved automatically, if possible')
-
-                forward_result = self.recover_voltage(mrid=bus.mrid, root=True)
-                if forward_result[bus.mrid]:
-                    self.apply_forward_result(forward_result = forward_result)
-                else:
-                    self.purge_forward_result(forward_result = forward_result)
+                recovered = self.recover_voltage(mrid=bus.mrid, forward_search={})
+                self.restore_voltage(recovered=recovered)
 
         #
         # resolve conform load id's for usagepoints
@@ -204,75 +196,43 @@ class Topology(BaseModel):
     #
     # validation helper functions
     #
-    def apply_forward_result(self, forward_result: dict):
-        for bus in self.bus:
-            if bus.mrid in forward_result.keys():
-                bus.rated_kv = forward_result[bus.mrid]
+    def restore_voltage(self, recovered: dict):
+        voltage_level = max(recovered.values())
+        if bool(voltage_level):
+            for bus in self.bus:
 
-    def purge_forward_result(self, forward_result: dict):
-        updated_bus = []
-        updated_branch = []
-        updated_switch = []
+                if bus.mrid in recovered.keys() and not bool(bus.rated_kv):
+                    logger.info(f'restoring voltage level {bus.mrid} {bus.rated_kv}->{voltage_level}')
+                    bus.rated_kv = voltage_level
+                #elif bool(bus.rated_kv) and bus.rated_kv != voltage_level:
+                #    raise Exception(f'topology.uuid={self.uuid} has resolved a conflicting bus.mrid={bus.mrid} voltage ralation {voltage_level}<?>{bus.rated_kv}')
+        else:
+            logger.warning(f'purge unrsolve bus.mrid={recovered.keys()} relations')
+            self.bus = [bus for bus in self.bus if bus.mrid not in recovered.keys()]
+            self.switch = [switch for switch in self.switch if switch.to_bus not in recovered.keys() and switch.from_bus not in recovered.keys()]
+            self.branch = [branch for branch in self.branch if branch.to_bus not in recovered.keys() and branch.from_bus not in recovered.keys() ]
 
-        for bus in self.bus:
-            if bus.mrid not in forward_result.keys():
-                updated_bus.append(bus)
-
-        for switch in self.switch:
-            if switch.to_bus not in forward_result.keys() and switch.from_bus not in forward_result.keys():
-                updated_switch.append(switch)
-            else:
-                logger.debug(msg = f'purging switch={switch.mrid} due to un-recovered bus voltage')
-        for branch in self.branch:
-            if branch.to_bus not in forward_result.keys() and branch.from_bus not in forward_result.keys():
-                updated_branch.append(branch)
-            else:
-                logger.debug(msg = f'purging branch={branch.mrid} due to un-recovered bus voltage')
-        self.bus = updated_bus
-        self.switch = updated_switch
-        self.branch = updated_branch
-
-    def recover_voltage(self, mrid: str, forward_search: dict=None, root: bool=False) -> dict:
-
-        if forward_search is None:
-            forward_search = {}
-
-        # locate bus of interest
-        bus = [bus for bus in self.bus if bus.mrid == mrid][0]
+    def recover_voltage(self, mrid: str, forward_search: dict) -> dict:
 
         # bus needs termination if deep search reveals nothing
-        current_bus = {bus.mrid: bus.rated_kv}
-        forward_search |= current_bus
+        forward_search |= {bus.mrid:bus.rated_kv for bus in self.bus if bus.mrid == mrid}
 
         # terminate if visited bus does have a valid voltage
-        if bus.rated_kv:
-            logger.info(f'Forward: {bus.mrid} ({bus.rated_kv}) -> Voltage Recovered', color=logger.GREEN)
-            return current_bus
+        if forward_search[mrid]:
+            logger.info(f'Forward: {mrid} ({forward_search[mrid]}) -> Voltage Recovered', color=logger.GREEN)
+            return forward_search
 
         # query all branch and switch segments to get next bus(s) destination
-        next_bus_via_switch = [switch.to_bus if switch.from_bus == mrid else switch.from_bus for switch in self.switch if switch.to_bus == mrid or switch.from_bus == mrid]
-        next_bus_via_branch = [branch.to_bus if branch.from_bus == mrid else branch.from_bus for branch in self.branch if branch.to_bus == mrid or branch.from_bus == mrid]
+        next_mrid_via_switch = [switch.to_bus if switch.from_bus == mrid else switch.from_bus for switch in self.switch if switch.to_bus == mrid or switch.from_bus == mrid]
+        next_mrid_via_branch = [branch.to_bus if branch.from_bus == mrid else branch.from_bus for branch in self.branch if branch.to_bus == mrid or branch.from_bus == mrid]
 
         # attempt to resolve voltages from next bus
-        next_mrid_list = list(set(next_bus_via_switch).union(set(next_bus_via_branch)))
+        next_mrid_list = list(set(next_mrid_via_switch).union(set(next_mrid_via_branch)))
         next_mrid_list.sort()
 
-        forward_result = {}
+        forward_return = forward_search
         for next_mrid in next_mrid_list:
-            if next_mrid not in forward_search:
-                logger.info(f'Forward search: {bus.mrid} ({bus.rated_kv} kV) -> {next_mrid} (? kV)', color=logger.BLACK)
-                result = self.recover_voltage(mrid=next_mrid, forward_search=forward_search) | current_bus
-                if next(iter(result)) == next(iter(current_bus)):
-                    logger.info(f'Forward: {next_mrid} (?) -> Voltage is unrecoverable', color=logger.RED)
-                    forward_result |= result| {next_mrid:0}
-                else:
-                    forward_result |= result
-
-        if not root:
-            return forward_result
-
-        if bool(len(forward_result)):
-            rated_kv = max(forward_result.values())
-            return {mrid: rated_kv for mrid in forward_result.keys()}
-
-        return current_bus
+            logger.info(f'Forward search: {mrid} ({forward_search[mrid]} kV) -> {next_mrid} (? kV)', color=logger.BLACK)
+            if next_mrid not in forward_return.keys():
+                forward_return |= self.recover_voltage(mrid=next_mrid, forward_search=forward_search)
+        return forward_return

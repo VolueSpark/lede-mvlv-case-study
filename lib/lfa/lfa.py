@@ -18,6 +18,7 @@ from lib.lfa.topology import (
     GhostNodes
 )
 
+from lib.lfa import create_hash_from_hex
 from lib.lfa.dataloader import DataLoader
 from lib import logger, decorator_timer
 
@@ -36,11 +37,12 @@ def pp_bus(bus: Any, net: pp.pandapowerNet, rated_kv: float=0):
         if net.bus.loc[net.bus['mrid'] == bus.mrid].shape[0] == 1:
             return net.bus.loc[net.bus['mrid'] == bus.mrid].index.item()
         if net.bus.loc[net.bus['mrid'] == bus].shape[0] == 0:
-            logger.warning(f'Bus mrid {bus.mrid} cannot be not resolved in pandapower net model. Add an artificual out-of-service bus.')
+            logger.warning(f'Bus mrid {bus.mrid} cannot be not resolved in pandapower net model. Add an artificial out-of-service bus.')
             return create_bus(
                 bus=ConnectivityNode(
                     mrid=bus.mrid,
-                    rated_kv=bus.rated_kv
+                    rated_kv=bus.rated_kv,
+                    in_service=False
                 ),
                 net=net
             )
@@ -48,7 +50,7 @@ def pp_bus(bus: Any, net: pp.pandapowerNet, rated_kv: float=0):
 
 
 def create_bus(bus: ConnectivityNode, net: pp.pandapowerNet):
-    if (not 'mrid' in net.bus.keys()) or (bus.mrid not in net.bus['mrid']):
+    if ('mrid' not in net.bus.keys()) or (bus.mrid not in net.bus['mrid']):
         return pp.create_bus(
             net,
             name=f'bus_{bus.mrid}',
@@ -57,14 +59,13 @@ def create_bus(bus: ConnectivityNode, net: pp.pandapowerNet):
             vn_kv=bus.rated_kv,
             in_service=bool(bus.rated_kv)
         )
-
     else:
         raise Exception(f'create_bus raised exception for multiple entries of bus={bus.mrid} in net')
 
 
 def create_ext_grid(bus: ConnectivityNode, net: pp.pandapowerNet):
     create_bus(bus=bus, net=net)
-    if (not 'mrid' in net.ext_grid.keys()) or (bus.mrid not in net.ext_grid['mrid']):
+    if ('mrid' not in net.ext_grid.keys()) or (bus.mrid not in net.ext_grid['mrid']):
         pp.create_ext_grid(
             net,
             name=f'slack_{bus.mrid}',
@@ -77,7 +78,7 @@ def create_ext_grid(bus: ConnectivityNode, net: pp.pandapowerNet):
 
 
 def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: bool=None):
-    if (not 'mrid' in net.trafo.keys()) or (trafo.mrid not in net.trafo['mrid']):
+    if ('mrid' not in net.trafo.keys()) or (trafo.mrid not in net.trafo['mrid']):
         if trafo.is_3w_trafo:
             pp.create_transformers3w_from_parameters(
                 net,
@@ -124,7 +125,7 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: boo
 
 def create_branch(branch: AcLineSegment, net: pp.pandapowerNet):
     if branch.has_impedance:
-        if (not 'mrid' in net.line.keys()) or (branch.mrid not in net.line['mrid']):
+        if ('mrid' not in net.line.keys()) or (branch.mrid not in net.line['mrid']):
             pp.create_line_from_parameters(
                 net,
                 name=f'branch_{branch.name}',
@@ -147,7 +148,7 @@ def create_branch(branch: AcLineSegment, net: pp.pandapowerNet):
 
 
 def create_switch(element: Any, net: pp.pandapowerNet):
-    if (type(element) in [Switch, AcLineSegment] and (not 'mrid' in net.switch.keys() or element.mrid not in net.switch['mrid'])):
+    if (type(element) in [Switch, AcLineSegment] and ('mrid' not in net.switch.keys() or element.mrid not in net.switch['mrid'])):
         pp.create_switch(
             net,
             name=f'switch_{element.name}',
@@ -180,8 +181,8 @@ def create_ghost(ghost: GhostNodes, net: pp.pandapowerNet):
         mrid=ghost.mrid,
         from_bus=ghost.from_bus,
         to_bus=ghost.to_bus,
-        is_open=False,
-        name=f'branch_{uuid.uuid4().__str__()}'
+        is_open=True,
+        name=f'ghost_{uuid.uuid4().__str__()}'
     )
     create_switch(element=switch, net=net)
 
@@ -246,65 +247,94 @@ class Lfa(DataLoader):
     @decorator_timer
     def create_net(self, lv: List[Topology], mv: List[Topology]) -> pp.pandapowerNet:
 
-        logger.debug(msg=f'Creating subnet for mv topology: {mv.uuid}')
+        name = create_hash_from_hex(uuid_list=[mv_i.uuid for mv_i in mv])
+        net = pp.create_empty_network(name=name)
 
-        net = pp.create_empty_network(name=mv.uuid)
-
-        # busses
-        logger.debug(msg=f'compile mv busses for uuid {mv.uuid}')
-        for mv_bus in mv.bus:
-            create_bus(bus=mv_bus, net=net)
-
-        for i, lv_i in enumerate(lv):
-            logger.debug(msg=f'compile lv bus group {i + 1} for uuid {lv_i.uuid}')
-            for lv_bus in lv_i.bus:
-                create_bus(bus=lv_bus, net=net)
-
-        # slack buses
-        for i, mv_slack_bus in enumerate(mv.slack):
-            logger.debug(msg=f'compile mv slack bus {i + 1} for bus {mv_slack_bus}')
-            create_ext_grid(bus=mv_slack_bus, net=net)
-
-        # trafo's
-        for i, mv_trafo in enumerate(mv.trafo):
-            logger.debug(msg=f'compile mv trafo {i + 1} with name: {mv_trafo.name}={mv_trafo.mrid} (in-service={mv_trafo.in_service})')
-            if mv_trafo.in_service:
-                create_trafo(trafo=mv_trafo, net=net)
-
-        # branches
-        for i, mv_branch in enumerate(mv.branch):
-            logger.debug(msg=f'compile mv branch {i + 1} with name: {mv_branch.name}={mv_branch.mrid}')
-            create_branch(branch=mv_branch, net=net)
+        # add busses
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_bus_j in enumerate(mv_i.bus):
+                logger.debug(msg=f'[{i},{j}] mv topology.uuid={mv_i.uuid}, bus.mrid={mv_i_bus_j.mrid}')
+                create_bus(bus=mv_i_bus_j, net=net)
 
         for i, lv_i in enumerate(lv):
-            logger.debug(msg=f'compile lv branch group {i + 1} for uuid {lv_i.uuid}')
-            for lv_branch in lv_i.branch:
-                create_branch(branch=lv_branch, net=net)
+            for j, lv_i_bus_j in enumerate(lv_i.bus):
+                logger.debug(msg=f'[{i},{j}] lv topology.uuid={lv_i.uuid}, bus.mrid={lv_i_bus_j.mrid}')
+                create_bus(bus=lv_i_bus_j, net=net)
 
-        # switches
-        for i, mv_switch in enumerate(mv.switch):
-            logger.debug(msg=f'compile mv switch {i + 1} with name: {mv_switch.name}={mv_switch.mrid}')
-            create_switch(element=mv_switch, net=net)
+        # add slack busses
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_slack_j in enumerate(mv_i.slack):
+                logger.debug(msg=f'[{i},{j}] mv topology.uuid={mv_i.uuid}, slack.mrid={mv_i_slack_j.mrid}')
+                create_ext_grid(bus=mv_i_slack_j, net=net)
+
+        # add trafo's
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_trafo_j in enumerate(mv_i.trafo):
+                logger.debug(msg=f'[{i},{j}] mv topology.uuid={mv_i.uuid}, trafo.mrid={mv_i_trafo_j.mrid} (in-service={mv_i_trafo_j.in_service})')
+                if mv_i_trafo_j.in_service:
+                    create_trafo(trafo=mv_i_trafo_j, net=net)
+
+        # add branches
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_branch_j in enumerate(mv_i.branch):
+                logger.debug(msg=f'[{i},{j}] mv topology.uuid={mv_i.uuid}, branch.mrid={mv_i_branch_j.mrid}')
+                create_branch(branch=mv_i_branch_j, net=net)
 
         for i, lv_i in enumerate(lv):
-            logger.debug(msg=f'compile lv with group {i + 1} for uuid {lv_i.uuid}')
-            for lv_switch in lv_i.switch:
-                create_switch(element=lv_switch, net=net)
+            for j, lv_i_branch_j in enumerate(lv_i.branch):
+                logger.debug(msg=f'[{i},{j}] lv topology.uuid={lv_i.uuid}, branch.mrid {lv_i_branch_j.mrid}')
+                create_branch(branch=lv_i_branch_j, net=net)
 
-        # loads
-        for i, mv_load in mv.load:
-            logger.debug(msg=f'compile mv load {i + 1} with name: {mv_load.name}={mv_load.mrid}')
-            create_load(load=mv_load, net=net)
+        # add switches
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_switch_j in enumerate(mv_i.switch):
+                logger.debug(msg=f'[{i},{j}] mv topology.uuid={mv_i.uuid}, switch.mrid={mv_i_switch_j.mrid}')
+                create_switch(element=mv_i_switch_j, net=net)
 
         for i, lv_i in enumerate(lv):
-            logger.debug(msg=f'compile lv load group {i + 1} for uuid {lv_i.uuid}')
-            for lv_load in lv_i.load:
-                create_load(load=lv_load, net=net)
+            for j, lv_i_switch_j in enumerate(lv_i.switch):
+                logger.debug(msg=f'[{i},{j}] lv topology.uuid={lv_i.uuid}, switch.mrid={lv_i_switch_j.mrid}')
+                create_switch(element=lv_i_switch_j, net=net)
 
-        # ghost nodes
-        for i, mv_ghost in mv.ghost:
-            logger.debug(msg=f'compile mv ghost node {i + 1} with mrid: {mv_ghost.mrid}')
-            create_ghost(ghost=mv_ghost, net=net)
+        # add loads
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_load_j in enumerate(mv_i.load):
+                logger.debug(msg=f'[{i},{j}] mv topology.uuid={mv_i.uuid}, load.mrid={mv_i_load_j.mrid}')
+                create_load(load=mv_i_load_j, net=net)
+
+        for i, lv_i in enumerate(lv):
+            for j, lv_i_load_j in enumerate(lv_i.load):
+                logger.debug(msg=f'[{i},{j}] lv topology.uuid={lv_i.uuid}, load.mrid={lv_i_load_j.mrid}')
+                create_load(load=lv_i_load_j, net=net)
+
+        # add ghost node
+        for i, mv_i in enumerate(mv):
+            for j, mv_i_ghost_j in enumerate(mv_i.ghost):
+                logger.debug(msg=f'[{i},{j}] lv topology.uuid={mv_i.uuid}, ghost.mrid={mv_i_ghost_j.mrid}')
+                create_ghost(ghost=mv_i_ghost_j, net=net)
+
+        for i, lv_i in enumerate(lv):
+            for j, lv_i_ghost_j in enumerate(lv_i.ghost):
+                logger.debug(msg=f'[{i},{j}] lv topology.uuid={lv_i.uuid}, ghost.mrid={lv_i_ghost_j.mrid}')
+                create_ghost(ghost=lv_i_ghost_j, net=net)
+
+        diag = pp.diagnostic(net)
+        diag_results = {}
+        for element in diag['different_voltage_levels_connected'].keys():
+            diag_results[element] = []
+            for index in diag['different_voltage_levels_connected'][element]:
+                if element == 'lines':
+                    mrid = net.line.loc[index]['mrid']
+                    from_bus_index = net.line.loc[index]['from_bus']
+                    to_bus_index = net.line.loc[index]['to_bus']
+                elif element == 'switches':
+                    mrid = net.switch.loc[index]['mrid']
+                    from_bus_index = net.switch.loc[index]['bus']
+                    to_bus_index = net.switch.loc[index]['element']
+
+                diag_results[element].append({'mrid': mrid,
+                                     'from_bus': {net.bus.loc[from_bus_index]['mrid']: net.bus.loc[from_bus_index]['vn_kv']},
+                                     'to_bus': {net.bus.loc[to_bus_index]['mrid']: net.bus.loc[to_bus_index]['vn_kv']}})
 
         return net
 

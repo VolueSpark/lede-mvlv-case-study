@@ -42,8 +42,6 @@ class ConformLoad(BaseModel):
     )
 
 
-
-
 #
 # unresolved elements connecting drifting usagepoints
 #
@@ -73,10 +71,6 @@ class ConnectivityNode(BaseModel):
     rated_kv: float = Field(
         alias='voltageLevel',
         default=0.0
-    )
-    # pandapower option
-    in_service: bool = Field(
-        default=True
     )
 
     # validator to convert to kilovolt
@@ -114,7 +108,7 @@ class AcLineSegment(BaseModel):
     # optional name is supplied
     name: str = Field(
         alias='name',
-        default=f'branch_{uuid.uuid4().__str__()}'
+        default=f'{uuid.uuid4().__str__()}'
     )
 
     @field_validator('x')
@@ -156,7 +150,7 @@ class Switch(BaseModel):
     # optional name, else generated
     name: str = Field(
         alias='name',
-        default=f'switch__{uuid.uuid4().__str__()}'
+        default=f'{uuid.uuid4().__str__()}'
     )
 
 
@@ -200,7 +194,7 @@ class PowerTransformer(BaseModel):
     # optional name
     name: str = Field(
         alias='name',
-        default=f'trafo__{uuid.uuid4().__str__()}'
+        default=f'{uuid.uuid4().__str__()}'
     )
 
 

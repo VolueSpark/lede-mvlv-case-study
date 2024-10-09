@@ -16,6 +16,7 @@ if __name__ == "__main__":
         file_path = os.path.join(RAW_PATH, file)
         with open(file_path, 'r') as f:
             gj = geojson.load(f)
+
             for feature in gj['features']:
                 if feature['type'] == 'Feature' and 'properties' in feature.keys() and 'objecttype' in feature['properties']:
                     if feature['properties']['objecttype'] in FEATURE_LIST:

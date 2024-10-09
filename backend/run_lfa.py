@@ -279,8 +279,8 @@ if __name__ == "__main__":
         flex_assets_path=FLEX_ASSETS_PATH
     )
 
-    #run_flexibility(lfa=lfa, flex=flex)
-    run_demonstrator(lfa=lfa, step_every=8)
+    run_flexibility(lfa=lfa, flex=flex)
+    #run_demonstrator(lfa=lfa, step_every=8)
 
 
 
