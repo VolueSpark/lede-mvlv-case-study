@@ -133,8 +133,8 @@ def create_branch(branch: AcLineSegment, net: pp.pandapowerNet):
                 from_bus=pp_bus(bus=branch.from_bus, net=net),
                 to_bus=pp_bus(bus=branch.to_bus, net=net),
                 length_km=1,  # TODO Verify number
-                r_ohm_per_km=branch.r,
-                x_ohm_per_km=branch.x,
+                r_ohm_per_km=branch.r + 1e-5, # TODO Verify conditioning number added to prevent singularity
+                x_ohm_per_km=branch.x + 1e-5, # TODO Verify conditioning number added to prevent singularity
                 c_nf_per_km=200,  # TODO Verify number
                 max_i_ka=1,  # TODO Verify number
                 in_service=True

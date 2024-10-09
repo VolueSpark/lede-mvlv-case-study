@@ -45,7 +45,7 @@ class AcLineSegment(BaseModel):
     # validate for line impedance
     @property
     def has_impedance(self):
-        return (self.r > 1e-4) or (self.x > 1e-4)
+        return (self.r > 0) or (self.x > 0)
 
 
 class Switch(BaseModel):
