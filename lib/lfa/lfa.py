@@ -83,6 +83,7 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: boo
             pp.create_transformers3w_from_parameters(
                 net,
                 name=f'trafo_{trafo.name}',
+                uuid=trafo.lv_bus.mrid, # keeping track of topology association
                 mrid=trafo.mrid,
                 hv_buses=[pp_bus(bus=trafo.hv_bus, net=net)],
                 mv_buses=[pp_bus(bus=trafo.mv_bus, net=net)],
@@ -107,6 +108,7 @@ def create_trafo(trafo: PowerTransformer, net: pp.pandapowerNet, in_service: boo
             pp.create_transformer_from_parameters(
                 net,
                 name=f'trafo_{trafo.name}',
+                uuid=trafo.lv_bus.mrid, # keeping track of topology association
                 mrid=trafo.mrid,
                 hv_bus=pp_bus(bus=trafo.hv_bus, net=net),
                 lv_bus=pp_bus(bus=trafo.lv_bus, net=net),
@@ -134,7 +136,7 @@ def create_branch(branch: AcLineSegment, net: pp.pandapowerNet):
                 to_bus=pp_bus(bus=branch.to_bus, net=net),
                 length_km=1,  # TODO Verify number
                 r_ohm_per_km=branch.r + 1e-5, # TODO Verify conditioning number added to prevent singularity
-                x_ohm_per_km=branch.x + 1e-5, # TODO Verify conditioning number added to prevent singularity
+                x_ohm_per_km=branch.x +1e-5,
                 c_nf_per_km=200,  # TODO Verify number
                 max_i_ka=1,  # TODO Verify number
                 in_service=True
@@ -318,24 +320,6 @@ class Lfa(DataLoader):
                 logger.debug(msg=f'[{i},{j}] lv topology.uuid={lv_i.uuid}, ghost.mrid={lv_i_ghost_j.mrid}')
                 create_ghost(ghost=lv_i_ghost_j, net=net)
 
-        diag = pp.diagnostic(net)
-        diag_results = {}
-        for element in diag['different_voltage_levels_connected'].keys():
-            diag_results[element] = []
-            for index in diag['different_voltage_levels_connected'][element]:
-                if element == 'lines':
-                    mrid = net.line.loc[index]['mrid']
-                    from_bus_index = net.line.loc[index]['from_bus']
-                    to_bus_index = net.line.loc[index]['to_bus']
-                elif element == 'switches':
-                    mrid = net.switch.loc[index]['mrid']
-                    from_bus_index = net.switch.loc[index]['bus']
-                    to_bus_index = net.switch.loc[index]['element']
-
-                diag_results[element].append({'mrid': mrid,
-                                     'from_bus': {net.bus.loc[from_bus_index]['mrid']: net.bus.loc[from_bus_index]['vn_kv']},
-                                     'to_bus': {net.bus.loc[to_bus_index]['mrid']: net.bus.loc[to_bus_index]['vn_kv']}})
-
         return net
 
     def write_net(self, net: pp.pandapowerNet):
@@ -357,10 +341,8 @@ class Lfa(DataLoader):
             mv=[read(topology_path=os.path.join(self.mv_path, mv_name)) for mv_name in os.listdir(self.mv_path)]
         )
 
-        try:
-            pp.runpp(net)
-        except Exception as e:
-            raise Exception(f'creation of pandapower net fail and could not converge. {e}')
+        if not self.diagnose(net=net):
+            raise Exception(f"creation of pandapower net failed and could not converge. See {os.path.join(self.work_path, 'diagnostics.json')}")
         else:
             self.write_net(net)
             plotly.simple_plotly(
@@ -452,3 +434,44 @@ class Lfa(DataLoader):
             )
             pp.runpp(net)
             yield (load_profile['datetime'][0], self.parse_result(net=net))
+
+    def diagnose(self, net: pp.pandapowerNet)->bool:
+        diag = pp.diagnostic(net)
+        diag_results = {
+            'converged': net['converged'],
+            'voltage_concerns': {},
+            'impedance_concerns': {}
+        }
+
+        for element in diag['different_voltage_levels_connected'].keys():
+            diag_results['voltage_concerns'][element] = []
+            for index in diag['different_voltage_levels_connected'][element]:
+                if element == 'lines':
+                    mrid = net.line.loc[index]['mrid']
+                    from_bus_index = net.line.loc[index]['from_bus']
+                    to_bus_index = net.line.loc[index]['to_bus']
+                elif element == 'switches':
+                    mrid = net.switch.loc[index]['mrid']
+                    from_bus_index = net.switch.loc[index]['bus']
+                    to_bus_index = net.switch.loc[index]['element']
+
+                diag_results['voltage_concerns'][element].append({'mrid': mrid,
+                                                                  'from_bus': {net.bus.loc[from_bus_index]['mrid']: net.bus.loc[from_bus_index]['vn_kv']},
+                                                                  'to_bus': {net.bus.loc[to_bus_index]['mrid']: net.bus.loc[to_bus_index]['vn_kv']}})
+
+        for element in diag['impedance_values_close_to_zero']:
+            for key, value in element.items():
+                diag_results['impedance_concerns'][key] = []
+                if key == 'line':
+                    for index in value:
+                        mrid = net.line.loc[index]['mrid']
+                        r_ohm_per_km = net.line.loc[index]['r_ohm_per_km']
+                        x_ohm_per_km = net.line.loc[index]['x_ohm_per_km']
+
+                        diag_results['impedance_concerns'][key].append({'mrid': mrid,
+                                                                        'r_ohm_per_km': f'{r_ohm_per_km:.3e}' ,
+                                                                        'x_ohm_per_km': f'{x_ohm_per_km:.3e}'})
+
+        with open(os.path.join(self.work_path, 'diagnostics.json'), 'w') as fp:
+            json.dump(diag_results, fp)
+        return diag_results['converged']

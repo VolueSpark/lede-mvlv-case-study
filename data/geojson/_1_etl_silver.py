@@ -45,7 +45,7 @@ def element_mrid_for_net(net: pp.pandapowerNet) -> dict:
             }
         elif element == 'PowerTransformer':
             element_mrid[element] = { mrid.replace('-',''):{
-                'name':net.trafo.iloc[i]['name'],
+                'name':net.trafo.iloc[i]['name'].split('_')[-1],
                 'uuid':net.trafo.iloc[i]['uuid']
             } for i, mrid in enumerate(net.trafo['mrid'].to_list())}
         elif element == 'AcLineSegment':
@@ -73,7 +73,7 @@ def element_mrid_feature(features: dict, element_mrid: dict) -> geojson.FeatureC
                 feature['properties']['uuid'] = element_mrid['PowerTransformer'][feature['properties']['id']]['uuid']
                 feature_collection.append(feature)
             else:
-                logger.exception(f"Feature id {feature['properties']['id']} could not be color mapped")
+                logger.exception(f"Object type {feature['properties']['objecttype']} feature id {feature['properties']['id']} could not be color mapped")
         return geojson.FeatureCollection(feature_collection)
 
 
