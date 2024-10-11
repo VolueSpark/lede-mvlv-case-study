@@ -412,6 +412,9 @@ class Lfa(DataLoader):
         }
 
     @decorator_timer
+    def solve(self, net: pp.pandapowerNet):
+        pp.runpp(net)
+
     def run_lfa(
             self,
             from_date: datetime,
@@ -432,7 +435,7 @@ class Lfa(DataLoader):
                 load_profile,
                 net
             )
-            pp.runpp(net)
+            self.solve(net=net)
             yield (load_profile['datetime'][0], self.parse_result(net=net))
 
     def diagnose(self, net: pp.pandapowerNet)->bool:

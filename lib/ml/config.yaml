@@ -13,7 +13,7 @@
     {
       sparknet:
         {
-          num_epochs: 10,
+          num_epochs: 20,
           optimizer:
             {
               algorithm: 'Adam',
@@ -35,7 +35,7 @@
             },
           loss:
             {
-              function: 'HuberLoss',
+              function: 'MSELoss',
               HuberLoss:
                 {
                   params:
@@ -44,6 +44,13 @@
                       delta: 0.1
                     }
                 },
+              MSELoss:
+                {
+                  params:
+                      {
+                        reduction: 'sum',
+                      }
+                }
             },
           metric:
             {
@@ -61,7 +68,7 @@
               split: [0.8, 0.9],
               window:
                 {
-                  input_width: ,
+                  input_width: 48,
                   label_width: 24,
                 },
               batch_size: 32,

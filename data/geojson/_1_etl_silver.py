@@ -1,3 +1,5 @@
+import random
+
 from matplotlib import colors
 import shutil
 

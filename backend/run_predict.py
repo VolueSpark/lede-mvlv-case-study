@@ -1,4 +1,4 @@
-from lib.ml.plotting import plot_aggregate
+from lib.ml.plotting import plot_active_power
 from lib.ml.predict import Predict
 import polars as pl
 import os
@@ -15,6 +15,6 @@ if __name__ == "__main__":
         uuid=UUID
     ).predict(data=data))
 
-    plot_aggregate(x, y, y_hat)
+    plot_active_power(x, y, y_hat)
 
 

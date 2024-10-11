@@ -1,6 +1,7 @@
 import os, yaml, torch, re, json, socket, torcheval
-from torcheval import metrics
 from torch.utils.tensorboard import SummaryWriter
+import polars.selectors as cs
+from torcheval import metrics
 from datetime import datetime
 from typing import Tuple
 from torch import nn
@@ -95,7 +96,7 @@ class Ml:
         os.makedirs(self.gold_data_path, exist_ok=True)
 
         # load the data
-        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'data.parquet'))
+        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'active_power_data.parquet'))
 
         # create the dnn
         self.model = getattr(NETWORK, MODEL_CLASS)(
@@ -200,10 +201,12 @@ class Ml:
                     .with_columns(pl.col('timestamp').map_batches(lambda x: rbf_transform(x=x.dt.hour(), period=24, input_range=(0,23))).alias('rbf_hour'),
                                   pl.col('timestamp').map_batches(lambda x: rbf_transform(x=x.dt.weekday(), period=7, input_range=(0,6))).alias('rbf_weekday') ))
 
-            (data
+            data = (data
              .rename({feature: (f't_{feature}' if feature == 'timestamp' else "X_{0}{1}_y".format(feature[0].upper(), re.match(r'^.*(\d{18})$', feature).group(1))
-            if bool(re.match(r'^.*(\d{18})$', feature)) else f'X_{feature}') for i, feature in enumerate(data.columns)})
-             .write_parquet(os.path.join(self.silver_data_path, 'data.parquet')))
+            if bool(re.match(r'^.*(\d{18})$', feature)) else f'X_{feature}') for i, feature in enumerate(data.columns)}))
+
+            data.drop(cs.starts_with('X_P')).write_parquet(os.path.join(self.silver_data_path, 'reactive_power_data.parquet'))
+            data.drop(cs.starts_with('X_Q')).write_parquet(os.path.join(self.silver_data_path, 'active_power_data.parquet'))
 
     def load_data(self, data_path):
         data = pl.read_parquet(data_path)

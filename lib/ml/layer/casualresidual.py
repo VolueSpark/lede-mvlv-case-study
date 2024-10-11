@@ -21,7 +21,7 @@ class CasualResidual(nn.Module):
             in_channels=inputs_shape[1],
             out_channels=inputs_shape[1],
             kernel_size=kernel_size,
-            dilation=2
+            dilation=4
         )
 
         self.relu_2 = nn.ReLU(inplace=True)

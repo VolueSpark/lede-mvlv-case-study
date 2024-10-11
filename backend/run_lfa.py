@@ -214,7 +214,12 @@ class FlexAssets:
             fig.savefig(os.path.join(self.flex_assets_path, f"{name.split('.')[0]}.png"), dpi=300)
 
 
-def run_flexibility(lfa: Lfa, flex: FlexAssets):
+def run_flexibility(lfa: Lfa):
+
+    flex = FlexAssets(
+        lfa_path=WORK_PATH,
+        flex_assets_path=FLEX_ASSETS_PATH
+    )
 
     from_date= datetime(2024, 1, 3, 0, 0)
     to_date=datetime(2024, 1, 7, 0, 0)
@@ -274,13 +279,10 @@ if __name__ == "__main__":
         data_path=DATA_PATH
     )
 
-    flex = FlexAssets(
-        lfa_path=WORK_PATH,
-        flex_assets_path=FLEX_ASSETS_PATH
-    )
 
-    run_flexibility(lfa=lfa, flex=flex)
-    #run_demonstrator(lfa=lfa, step_every=8)
+
+    #run_flexibility(lfa=lfa)
+    run_demonstrator(lfa=lfa, step_every=8)
 
 
 
