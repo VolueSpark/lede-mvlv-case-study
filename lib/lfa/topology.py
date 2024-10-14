@@ -113,10 +113,8 @@ class Topology(BaseModel):
         #
         if not len(self.trafo):
             raise Exception(f'{self.uuid} has zero trafo entries and will be discarded')
-        if not len(self.switch):
-            raise Exception(f'{self.uuid} has zero switch entries and will be discarded')
-        if not len(self.branch):
-            raise Exception(f'{self.uuid} has zero branch entries and will be discarded')
+        if not len(self.switch) and not len(self.branch):
+            raise Exception(f'{self.uuid} has zero switch and branch entries and will be discarded and {len(self.load)}')
 
 
         #

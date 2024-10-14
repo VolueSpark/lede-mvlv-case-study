@@ -59,9 +59,9 @@ class SparkNet(nn.Module):
         out_3 = self.conv1dres_2(inputs_exo)
         out_4 = torch.cat((out_2, out_3), dim=1)
         out_5 = self.conv1dsample_2(out_4)
-        out_6 =self.mlp(out_5)
+        #out_6 =self.mlp(out_5)
 
-        return out_6
+        return out_5
 
 
 

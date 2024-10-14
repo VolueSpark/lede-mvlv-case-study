@@ -70,7 +70,12 @@ if __name__ == '__main__':
                 for load in topology.load:
                     metadata = metadata.vstack(pl.DataFrame({'uuid': topology.uuid, 'cfl_mrid':load.cfl_mrid, 'mrid': load.mrid, 'meter_id': load.meter_id})).unique('meter_id')
 
-    metadata = metadata.join(metadata.group_by('uuid').agg(pl.col('cfl_mrid').n_unique().alias('#cfl_mrid'), pl.col('meter_id').n_unique().alias('#meter_id')), on='uuid', how='inner')
+    metadata = metadata.join(metadata.group_by('uuid').agg(
+        pl.col('cfl_mrid').n_unique().alias('cnt_cfl_mrid'),
+        pl.col('meter_id').n_unique().alias('cnt_meter_id')),
+        on='uuid',
+        validate='m:1'
+    )
 
     meter_list = metadata['meter_id'].to_list()
     max_workers = multiprocessing.cpu_count()

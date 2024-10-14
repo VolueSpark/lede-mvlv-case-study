@@ -17,8 +17,10 @@
     {% for item in data %}
     <tr>
         {% for key, value in item.items() %}
-        {% if key == 'meter_id' %}
-        <td><a href="{{ url_for('uuid', uuid=item['uuid'], meter_id=item['meter_id'] ) }}">{{ value }}</a></td>
+        {% if key == 'uuid' %}
+        <td><a href="{{ url_for('uuid', uuid=item['uuid']) }}">{{ value }}</a></td>
+        {% elif key == 'meter_id' %}
+        <td><a href="{{ url_for('meter', meter_id=item['meter_id'] ) }}">{{ value }}</a></td>
         {% else %}
         <td>{{ value }}</td>
         {% endif %}

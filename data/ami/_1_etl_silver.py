@@ -1,4 +1,6 @@
 import concurrent.futures, multiprocessing, threading, os, shutil
+from sklearn.neighbors import LocalOutlierFactor
+from sklearn.preprocessing import StandardScaler
 from datetime import datetime
 import polars as pl
 import pandas as pd
@@ -13,9 +15,26 @@ SILVER_MEAS_PATH = os.path.join(SILVER_PATH, 'meas')
 
 from lib import logger
 
+def filter_for_outliers(df: pl.DataFrame, n_neighbors: int=20) -> pl.DataFrame:
+    # filter for negative values
+    df = df.with_columns(value=((pl.col('kWhout')-pl.col('kWhin'))**2 + (pl.col('kVArhout')-pl.col('kVArhin'))**2)**0.5)
+
+    if df.shape[0] > n_neighbors:
+        clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+        X = df['value'].to_numpy().reshape(-1, 1)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        is_inliers = clf.fit_predict(X_scaled)  # Returns -1 for anomalies/outliers and 1 for inliers.
+        return df.filter(is_inliers == 1)
+    logger.warning(f"Cannot process outlier filtering on meter id {df.unique('meter_id', keep='first')['meter_id'].item()} given shape {df.shape} and n_neighbors={n_neighbors}")
+    return df.drop('value')
+
 def process_batch(**kwargs) -> str:
     for i, meter_id in enumerate(kwargs['folder_sub_list']):
 
+        #
+        # collect and evaluate lazy parquet read
+        #
         df = (
             pl.scan_parquet(os.path.join(BRONZE_MEAS_PATH, meter_id))
             .with_columns(pl.col('value_dt').dt.replace_time_zone(None))
@@ -25,14 +44,22 @@ def process_batch(**kwargs) -> str:
             .sort(by='value_dt', descending=False)
         ).collect()
 
+        #
+        # filter for postive values only
         # out-> grid to energy consumer (grid consumption / grid export)
-        #  in-> energy consumer to grid (IPP production / grid import)
+        # in-> energy consumer to grid (IPP production / grid import)
+        #
         df = df.filter(
             pl.col('kWhout') >= 0,
             pl.col('kWhin') >= 0,
             pl.col('kVArhout') >= 0,
             pl.col('kVArhin') >= 0
         )
+
+        #
+        # process for outliers
+        #
+        df = filter_for_outliers(df=df)
 
         df_orig = df.to_pandas()
 
@@ -87,7 +114,7 @@ if __name__ == '__main__':
     max_workers = multiprocessing.cpu_count()
     batch_size = round(len(folder_list) / max_workers)
 
-    #process_batch(folder_sub_list=['707057500041450476'], thread_idx=0)
+    #process_batch(folder_sub_list=['707057500042738740'], thread_idx=0)
     #exit(1)
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:

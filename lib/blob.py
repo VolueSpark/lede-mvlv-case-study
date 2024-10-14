@@ -104,8 +104,10 @@ def fetch_lede_measurement_ts(from_date: datetime, to_date: datetime=None) -> Tu
                 )
             )
 
-        logger.info(f"Fetched {len(collected_blobs)} blobs for {prefix} which yielded {data.n_unique('meter_id')} unique meter readings")
-
-        yield date, data
+        if not data.is_empty():
+            logger.info(f"Fetched {len(collected_blobs)} blobs for {prefix} which yielded {data.n_unique('meter_id')} unique meter readings")
+            yield date, data
+        else:
+            logger.info(f"Fetched {len(collected_blobs)} blobs for {prefix}")
 
 
