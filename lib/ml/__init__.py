@@ -209,16 +209,16 @@ def decorate_train(func):
             json.dump({
                 'library': self.model.__module__,
                 'class': self.model.__class__.__name__,
+                'input_width': self.train_loader.meta.input_width,
+                'label_width': self.train_loader.meta.label_width,
                 'shape':
                     {
                         'input': self.train_loader.meta.input_shape,
-                        'exo': self.train_loader.meta.input_exo_shape,
                         'target': self.train_loader.meta.target_shape
                     },
                 'features':
                     {
                         'input': self.train_loader.meta.input_features,
-                        'exo': self.train_loader.meta.input_exo_features,
                         'target': self.train_loader.meta.target_features
                     }
             }, fp)

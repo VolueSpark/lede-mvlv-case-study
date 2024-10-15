@@ -102,14 +102,13 @@ class Ml:
 
         # create the dnn
         self.model = getattr(NETWORK, MODEL_CLASS)(
-            inputs_shape=self.train_loader.inputs_shape,
-            inputs_exo_shape=self.train_loader.inputs_exo_shape,
-            targets_shape=self.train_loader.targets_shape
+            input_shape=self.train_loader.input_shape,
+            target_shape=self.train_loader.target_shape
         )
 
         # tensor graph visualization
-        (_, inputs, inputs_exo, targets) = next(iter(self.val_loader)).values()
-        self.writer.add_graph(model=self.model, input_to_model=(inputs, inputs_exo))
+        (_, input, target) = next(iter(self.val_loader)).values()
+        self.writer.add_graph(model=self.model, input_to_model=(input))
 
         self.epoch_cnt = PARAMS['num_epochs']
         self.optimizer = Optimizer(params=self.model.parameters())
@@ -253,17 +252,14 @@ class Ml:
     def epoch_training(self, epoch_i: int) -> Tuple[str, int, float, float]:
         self.model.train()
         for i, data in enumerate(self.train_loader):
-            (_, inputs, inputs_exo, targets) = data.values()
+            (_, input, target) = data.values()
 
             self.optimizer.zero_grad()
 
-            outputs = self.model.forward(
-                inputs=inputs,
-                inputs_exo=inputs_exo
-            )
+            output = self.model.forward( input=input )
 
-            loss = self.loss.eval(outputs, targets)
-            acc = self.metric.eval(outputs, targets)
+            loss = self.loss.eval(output, target)
+            acc = self.metric.eval(output, target)
 
             loss.backward()
 
@@ -279,12 +275,12 @@ class Ml:
 
         with torch.no_grad():
             for i, data in enumerate(self.val_loader):
-                (_, inputs, inputs_exo, targets) = data.values()
+                (_, input, target) = data.values()
 
-                outputs = self.model(inputs, inputs_exo)
+                output = self.model(input)
 
-                loss = self.loss.eval(outputs, targets)
-                acc = self.metric.eval(outputs, targets)
+                loss = self.loss.eval(output, target)
+                acc = self.metric.eval(output, target)
 
                 yield (epoch_i*self.val_loader.meta.loader_depth + i, loss.item(), acc.item())
 
