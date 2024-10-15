@@ -9,7 +9,7 @@ METADATA = os.path.join(PATH, '../../data/ami/gold/metadata.parquet')  # meta st
 SILVER_DATA = os.path.join(PATH, '../../data/ami/silver/meas')
 TOPOLOGY_DATA = os.path.join(PATH, '../lfa/data') # process data aggregated for each neighborhood for faster processing
 HOST = "0.0.0.0"
-PORT = 7070
+PORT = 9070
 
 app = Flask(__name__, template_folder='template')
 

@@ -84,16 +84,18 @@ class Ml:
         self.silver_data_path = os.path.join(self.path, 'data/silver')
         self.gold_data_path = os.path.join(self.path, 'data/gold')
 
-        self.prepare_bronze_data()
-        self.prepare_silver_data()
-
-        self.writer = SummaryWriter(log_dir=self.tensorboard_path )
-
         os.makedirs(self.tensorboard_path, exist_ok=True)
         os.makedirs(self.artifacts_path, exist_ok=True)
         os.makedirs(self.bronze_data_path, exist_ok=True)
         os.makedirs(self.silver_data_path, exist_ok=True)
         os.makedirs(self.gold_data_path, exist_ok=True)
+
+        self.prepare_bronze_data()
+        self.prepare_silver_data()
+
+        self.writer = SummaryWriter(log_dir=self.tensorboard_path )
+
+
 
         # load the data
         self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'active_power_data.parquet'))

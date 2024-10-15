@@ -3,9 +3,9 @@ from torch import nn
 import torch
 
 from lib import logger
-from lib.ml.layer.mlp import MultiLayerPerceptron
 from lib.ml.layer.casualresidual import CasualResidual
 from lib.ml.layer.casualdownsample import CasualDownSample
+
 
 class SparkNet(nn.Module):
     def __init__(
@@ -19,6 +19,20 @@ class SparkNet(nn.Module):
         self.name = self.__class__.__name__
 
         logger.info(f"Instantiate deep neural network model {self.__class__.__name__}: [inputs_shape={inputs_shape}, inputs_exo_shape={inputs_exo_shape}, targets_shape={targets_shape}]")
+
+
+        self.lstm_1 = nn.LSTM(
+            input_size=inputs_shape[1],
+            hidden_size=inputs_shape[1],
+            num_layers=1,
+            bias=True,
+            batch_first=True,
+            dropout=0,    
+            bidirectional=False
+        )
+
+        self.sigmoid_1 = nn.Sigmoid()
+
 
         self.conv1dres_1 = CasualResidual(
             inputs_shape=inputs_shape
@@ -42,10 +56,7 @@ class SparkNet(nn.Module):
             out_sequence=targets_shape[2],
         )
 
-        self.mlp = MultiLayerPerceptron(
-            hidden_layers=[(targets_shape[1]*targets_shape[2], 100), (100, targets_shape[1]*targets_shape[2])],
-            output_shape=(targets_shape[1], targets_shape[2]),
-        )
+
 
 
     def forward(
@@ -54,12 +65,17 @@ class SparkNet(nn.Module):
             inputs_exo: torch.Tensor
     )->torch.Tensor:
 
-        out_1 = self.conv1dres_1(inputs)
+        inputs = inputs.permute(0,2,1)
+        out_1, (_, _) = self.lstm_1(inputs)
+        out_1 = out_1.permute(0,2,1)
+
+        out_1 = self.sigmoid_1(out_1)
+
+        #out_1 = self.conv1dres_1(inputs)
         out_2 = self.conv1dsample_1(out_1)
         out_3 = self.conv1dres_2(inputs_exo)
         out_4 = torch.cat((out_2, out_3), dim=1)
         out_5 = self.conv1dsample_2(out_4)
-        #out_6 =self.mlp(out_5)
 
         return out_5
 

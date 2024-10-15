@@ -6,7 +6,11 @@ from lib.ml.layer.casualconv1d import CasualConv1d
 
 
 class CasualResidual(nn.Module):
-    def __init__(self, inputs_shape: Tuple[int, int, int], kernel_size: int = 3, stride: int = 1) -> None:
+    def __init__(
+            self,
+            inputs_shape: Tuple[int, int, int],
+            kernel_size: int = 3
+    ) -> None:
         super().__init__()
 
         self.casual_conv1d_1 = CasualConv1d(
@@ -21,7 +25,7 @@ class CasualResidual(nn.Module):
             in_channels=inputs_shape[1],
             out_channels=inputs_shape[1],
             kernel_size=kernel_size,
-            dilation=4
+            dilation=2
         )
 
         self.relu_2 = nn.ReLU(inplace=True)

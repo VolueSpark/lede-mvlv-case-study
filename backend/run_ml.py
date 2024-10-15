@@ -39,6 +39,7 @@ class CustomServer(tb.program.TensorBoardServer):
 
 
 UUID = '59f5db7a-a41d-5166-90d8-207ca87fecc6'
+UUID = 'f22a4d55-0655-5bb4-923d-ea1dbec39d58'
 if __name__ == "__main__":
 
     ml = Ml(
