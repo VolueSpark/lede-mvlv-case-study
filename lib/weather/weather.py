@@ -21,6 +21,7 @@ class Hours(BaseModel):
     cloudcover: float = Field(alias='cloudcover', default=None)
     solarradiation: float = Field(alias='solarradiation', default=None)
     solarenergy: float = Field(alias='solarenergy', default=None)
+    windspeed: float = Field(alias='windspeed', default=None)
 
 
 class Weather(BaseModel):
@@ -59,7 +60,7 @@ def fetch_hist_weather(
             url = os.getenv('VISUAL_CROSSING_URL')+f"{latitude}%2C{longitude}/{date_from.date()-timedelta(days=1)}/{date_to.date()+timedelta(days=1)}"
             headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
             params={'unitGroup':'metric',
-                    'elements':'datetime,tempmax,tempmin,temp,feelslikemin,feelslike,dew,humidity,precipprob,windspeedmax,windspeedmean,windspeedmin,pressure,cloudcover,solarradiation,solarenergy,sunrise,sunset',
+                    'elements':'datetime,tempmax,tempmin,temp,feelslikemin,feelslike,dew,humidity,precipprob,windspeedmax,windspeedmean,windspeedmin,windspeed,pressure,cloudcover,solarradiation,solarenergy,sunrise,sunset',
                     'include':'hours',
                     'key':os.getenv('VISUAL_CROSSING_API_KEY')
                     }

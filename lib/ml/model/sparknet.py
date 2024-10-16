@@ -5,6 +5,7 @@ import torch
 from lib import logger
 from lib.ml.layer.casualresidual import CasualResidual
 from lib.ml.layer.casualdownsample import CasualDownSample
+from lib.ml.layer.mlp import MultiLayerPerceptron
 
 
 class SparkNet(nn.Module):
@@ -30,13 +31,21 @@ class SparkNet(nn.Module):
             out_sequence=target_shape[2],
         )
 
+        self.dense = MultiLayerPerceptron(
+            hidden_layers=[(input_shape[1]*input_shape[2], 100), (100, target_shape[1]*target_shape[2])],
+            output_shape=(target_shape[1], target_shape[2]),
+        )
+
+
+
     def forward(
             self,
             input: torch.Tensor
     )->torch.Tensor:
 
         out_1 = self.conv1dres_1(input)
-        out_2 = self.conv1dsample_1(out_1)
+        out_2 = self.dense(out_1)
+        #out_2 = self.conv1dsample_1(out_1)
 
         return out_2
 

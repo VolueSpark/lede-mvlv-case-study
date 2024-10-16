@@ -13,7 +13,7 @@
     {
       sparknet:
         {
-          num_epochs: 20,
+          num_epochs: 30,
           optimizer:
             {
               algorithm: 'Adam',
@@ -21,7 +21,7 @@
                 {
                   params:
                     {
-                      lr: 0.001,
+                      lr: 0.0001,
                       betas: [0.9, 0.999]
                     }
                 },
@@ -71,7 +71,7 @@
                   input_width: 48,
                   label_width: 24,
                 },
-              batch_size: 48,
+              batch_size: 24,
               shuffle: False
             }
         }

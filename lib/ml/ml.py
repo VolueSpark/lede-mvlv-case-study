@@ -98,7 +98,7 @@ class Ml:
 
 
         # load the data
-        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'active_power_data.parquet'))
+        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'active.parquet'))
 
         # create the dnn
         self.model = getattr(NETWORK, MODEL_CLASS)(
@@ -206,8 +206,28 @@ class Ml:
              .rename({feature: (f't_{feature}' if feature == 'timestamp' else "X_{0}{1}_y".format(feature[0].upper(), re.match(r'^.*(\d{18})$', feature).group(1))
             if bool(re.match(r'^.*(\d{18})$', feature)) else f'X_{feature}') for i, feature in enumerate(data.columns)}))
 
-            data.drop(cs.starts_with('X_P')).write_parquet(os.path.join(self.silver_data_path, 'reactive_power_data.parquet'))
-            data.drop(cs.starts_with('X_Q')).write_parquet(os.path.join(self.silver_data_path, 'active_power_data.parquet'))
+
+            data = data.drop(['X_euro_mwh',
+                              'X_nok_euro',
+                              'X_cloudcovermean',
+                              'X_dewmean',
+                              'X_feelslikemean',
+                              'X_feelslikemin',
+                              'X_precipprobmean',
+                              'X_pressuremean',
+                              'X_solarenergymean',
+                              'X_solarradiationmean',
+                              'X_sunrise',
+                              'X_sunset',
+                              'X_tempmax',
+                              'X_tempmean',
+                              'X_tempmin',
+                              'X_windspeedmax',
+                              'X_windspeedmin'])
+
+            data.write_parquet(os.path.join(self.silver_data_path, 'data.parquet'))
+            data.drop(cs.starts_with('X_P')).write_parquet(os.path.join(self.silver_data_path, 'reactive.parquet'))
+            data.drop(cs.starts_with('X_Q')).write_parquet(os.path.join(self.silver_data_path, 'active.parquet'))
 
     def load_data(self, data_path):
         data = pl.read_parquet(data_path)
