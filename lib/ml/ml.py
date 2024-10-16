@@ -269,7 +269,10 @@ class Ml:
         return train_loader, val_loader
 
     @decorator_epoch
-    def epoch_training(self, epoch_i: int) -> Tuple[str, int, float, float]:
+    def epoch_training(
+            self,
+            epoch_i: int
+    ) -> Tuple[str, int, float, float]:
         self.model.train()
         for i, data in enumerate(self.train_loader):
             (_, input, target) = data.values()
@@ -287,10 +290,17 @@ class Ml:
 
             #print(f'epoch_training: index={epoch_i*self.train_loader.meta.loader_depth + i}, loss={loss.item()}, acc={acc.item()}')
 
-            yield (epoch_i*self.train_loader.meta.loader_depth + i, loss.item(), acc.item())
+            yield (
+                epoch_i*self.train_loader.meta.loader_depth + i,
+                loss.item(),
+                acc.item()
+            )
 
     @decorator_epoch
-    def epoch_validation(self, epoch_i: int) -> Tuple[str, int, float, float]:
+    def epoch_validation(
+            self,
+            epoch_i: int
+    ) -> Tuple[str, int, float, float]:
         self.model.eval()
 
         with torch.no_grad():
@@ -302,7 +312,11 @@ class Ml:
                 loss = self.loss.eval(output, target)
                 acc = self.metric.eval(output, target)
 
-                yield (epoch_i*self.val_loader.meta.loader_depth + i, loss.item(), acc.item())
+                yield (
+                    epoch_i*self.val_loader.meta.loader_depth + i,
+                    loss.item(),
+                    acc.item()
+                )
 
     @decorate_train
     def train(self):

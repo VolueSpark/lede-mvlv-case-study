@@ -127,28 +127,24 @@ pbar = ProgressBar()
 def decorator_epoch(func):
     def inner(self, *args, **kwargs):
 
-        ave_loss = 0
-        ave_acc = 0
-
         t0 = time.time()
-        for result in func(self, *args, **kwargs):
+
+        ave_loss=0
+        ave_acc=0
+
+        for i, result in enumerate(func(self, *args, **kwargs)):
 
             (global_index, loss, acc) = result
-
             #print(f'epoch_training: index={global_index}, loss={loss}, acc={acc}')
 
             elapsed_time = (time.time()-t0)
-
+            it_per_sec = i/elapsed_time
             if func.__name__ == 'epoch_training':
                 tag = 'train'
-                local_index = (global_index%(self.train_loader.meta.loader_depth))+1
-                it_per_sec = local_index/elapsed_time
-                progress_pct = local_index/self.train_loader.meta.loader_depth*100
+                progress_pct = (i+1)/self.train_loader.meta.loader_depth*100
             elif func.__name__ == 'epoch_validation':
                 tag = 'val'
-                local_index = (global_index%(self.val_loader.meta.loader_depth))+1
-                it_per_sec = local_index/elapsed_time
-                progress_pct = local_index/self.val_loader.meta.loader_depth*100
+                progress_pct = (i+1)/self.val_loader.meta.loader_depth*100
             else:
                 raise NotImplementedError(f'{func.__name__} does not support progress bar evaluation')
 
@@ -161,11 +157,12 @@ def decorator_epoch(func):
                 acc=acc
             )
 
+            ave_loss = (loss + i*ave_loss)/(i+1)
+            ave_acc = (acc + i*ave_acc)/(i+1)
+
             self.writer.add_scalar(f'Loss/{tag}', loss, global_index)
             self.writer.add_scalar(f'Acc/{tag}', acc, global_index)
 
-            ave_loss = (loss + local_index*ave_loss)/(local_index+1)
-            ave_acc = (acc + local_index*ave_acc)/(local_index+1)
         return (ave_loss, ave_acc)
     return inner
 
@@ -175,17 +172,15 @@ def decorate_train(func):
     def inner(self, *args, **kwargs):
 
         t0 = time.time()
-        for result in func(self, *args, **kwargs):
+        for i, result in enumerate(func(self, *args, **kwargs)):
 
             (global_index, loss, acc, vloss, vacc) = result
 
             elapsed_time = (time.time()-t0)
-
+            it_per_sec = i/elapsed_time
             if func.__name__ == 'train':
-                local_index = global_index+1
                 tag = 'epoch'
-                it_per_sec = elapsed_time/local_index
-                progress_pct = local_index/self.epoch_cnt*100
+                progress_pct = (i+1)/self.epoch_cnt*100
             else:
                 raise NotImplementedError(f'{func.__name__} does not support progress bar evaluation')
 
