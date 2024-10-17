@@ -9,7 +9,7 @@ import pandas as pd
 
 PATH = os.path.dirname(__file__)
 
-from lib.ml import Scaler
+from lib.ml import Scaler, device
 
 
 
@@ -47,6 +47,7 @@ class Predict:
             target_shape=self.meta['shape']['target']
         )
         self.model.load_state_dict(torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'state_dict.pth')),weights_only=True))
+        self.model.to(device)
 
     def parse( self, index: int, output: np.ndarray) -> Tuple[pl.DataFrame,...]:
 
@@ -74,6 +75,6 @@ class Predict:
                 output = self.model(input)
 
                 yield self.parse(
-                    index=index.numpy()[0],
-                    output=output.numpy()[0]
+                    index=index.cpu().numpy()[0],
+                    output=output.cpu().numpy()[0]
                 )
