@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from lib import logger
 
+device = ( 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
 class Scaler(MinMaxScaler):
 
@@ -58,6 +59,7 @@ class Split:
 
         return features, train.drop('t_timestamp').to_numpy(), val.drop('t_timestamp').to_numpy(), test
 
+
 class Ascii:
     RETURN = '\033[F\r'
     RED = '\033[31m'
@@ -66,6 +68,7 @@ class Ascii:
     BLUE = '\033[34m'
     END = '\033[0m'
 
+
 class OuterProgress(BaseModel):
     elapsed_time: float=Field(default=0.0)
     progress_pct: float=Field(default=0.0)
@@ -73,6 +76,7 @@ class OuterProgress(BaseModel):
     acc: float=Field(default=0.0)
     vloss: float=Field(default=0.0)
     vacc: float=Field(default=0.0)
+
 
 class InnerProgress(BaseModel):
     it_per_sec:  float=Field(default=0.0)

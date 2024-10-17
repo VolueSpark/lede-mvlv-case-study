@@ -8,7 +8,7 @@ from torch import nn
 import polars as pl
 import numpy as np
 
-from lib.ml import Split, Scaler, decorate_train, decorator_epoch
+from lib.ml import Split, Scaler, decorate_train, decorator_epoch, device
 
 from lib.ml.dataloader import DataLoader
 from lib.price.insight import fetch_hist_spot
@@ -23,17 +23,9 @@ with open(os.path.join(PATH,'config.yaml')) as fp:
     MODEL_CLASS = CONFIG['ml']['variant']
     LIBRARY_PATH = f"lib.ml.model.{MODEL_CLASS.lower()}"
     NETWORK = __import__(LIBRARY_PATH, fromlist=[MODEL_CLASS])
-    PARAMS = CONFIG['params'][MODEL_CLASS.lower()]
+    PARAMS = CONFIG['params']
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-device = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
 
 
 class Optimizer:
@@ -59,7 +51,7 @@ class Metric:
     def __init__(self, *args, **kwargs):
         metric_class = PARAMS['metric']['function']
         params = PARAMS['metric'][metric_class]['params']
-        self.obj =  getattr(torcheval.metrics, metric_class)(**params)
+        self.obj =  getattr(torcheval.metrics, metric_class)(**params).to(device)
 
     def eval(self, x: torch.Tensor, y: torch.Tensor):
         return self.obj.update(x.view(x.shape[1],x.shape[0]*x.shape[2]),
@@ -95,8 +87,6 @@ class Ml:
 
         self.writer = SummaryWriter(log_dir=self.tensorboard_path )
 
-
-
         # load the data
         self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'active.parquet'))
 
@@ -104,7 +94,7 @@ class Ml:
         self.model = getattr(NETWORK, MODEL_CLASS)(
             input_shape=self.train_loader.input_shape,
             target_shape=self.train_loader.target_shape
-        )
+        ).to(device)
 
         # tensor graph visualization
         (_, input, target) = next(iter(self.val_loader)).values()
@@ -281,8 +271,8 @@ class Ml:
 
             output = self.model.forward( input=input )
 
-            loss = self.loss.eval(output, target)
-            acc = self.metric.eval(output, target)
+            loss = self.loss.eval(output, target )
+            acc = self.metric.eval(output, target )
 
             loss.backward()
 

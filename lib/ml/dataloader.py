@@ -5,6 +5,8 @@ from typing import List, Tuple
 import torch
 
 from lib import logger
+from lib.ml import device
+
 
 
 class DataloaderMetaData(BaseModel):
@@ -35,7 +37,7 @@ class WidowGenerator(torch.utils.data.Dataset):
 
         self.input_width = input_width
         self.label_width = label_width
-        self.total_window_length = input_width + 2*label_width
+        self.total_window_length = input_width + label_width
 
     def __len__(self):
         return len(self.data) - self.total_window_length + 1
@@ -43,35 +45,40 @@ class WidowGenerator(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         window = self.data[idx:idx + self.total_window_length]
 
-        input_lagged_features = torch.cat(
-            [torch.tensor(window[0:self.total_window_length-self.label_width, col_idx], dtype=torch.float32).unsqueeze(-1)
-             for feature, col_idx in self.targets.items()],
-            dim=-1
-        ).transpose(0, 1)
-
-        input_features = torch.cat(
-            [torch.tensor(window[self.label_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
-             for feature, col_idx in self.inputs_exo.items()],
-            dim=-1
-        ).transpose(0, 1)
-
-        input = torch.vstack(
+        input = torch.hstack(
             (
-                input_lagged_features,
-                input_features
-            ),
+                torch.cat(
+                    [torch.tensor(window[0:self.input_width, col_idx], dtype=torch.float32).unsqueeze(-1)
+                     for feature, col_idx in self.inputs.items()],
+                    dim=-1
+                ).transpose(0, 1)
+                , torch.vstack(
+                    (
+                        torch.cat(
+                            [torch.tensor(window[self.input_width - self.label_width:self.total_window_length - self.label_width, col_idx], dtype=torch.float32).unsqueeze(-1)
+                             for feature, col_idx in self.targets.items()],
+                            dim=-1
+                        ).transpose(0, 1),
+                        torch.cat(
+                            [torch.tensor(window[self.input_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
+                             for feature, col_idx in self.inputs_exo.items()],
+                            dim=-1
+                        ).transpose(0, 1)
+                    )
+                )
+            )
         )
 
         target = torch.cat(
-            [torch.tensor(window[self.input_width+self.label_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
+            [torch.tensor(window[self.input_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
              for feature, col_idx in self.targets.items()],
             dim=-1
         ).transpose(0, 1)
 
         return {
             'index': idx,               # data shuffle index
-            'input': input,         # features inputs based on historical data
-            'target': target        # target labels
+            'input': input.to(device),         # features inputs based on historical data
+            'target': target.to(device)        # target labels
         }
 
 
@@ -102,27 +109,29 @@ class DataLoader(torch.utils.data.DataLoader):
         )
 
         # sample batch data at index for inspection
-        window_length = input_width + 2*label_width
+        window_length = input_width + label_width
 
         sample_batched = next(iter(self))
         idx = sample_batched['index'][0].numpy().flat[0]
 
-        input_lagged_features = np.vstack([data[idx:idx + window_length - label_width, col_idx] for feature, col_idx in dataset.targets.items()])
-        input_features = np.vstack([data[idx+label_width:idx + window_length, col_idx] for feature, col_idx in dataset.inputs_exo.items()])
-
-        input = np.vstack(
+        input = np.hstack(
             (
-                input_lagged_features,
-                input_features
+                np.vstack([data[idx:idx + input_width, col_idx] for feature, col_idx in dataset.inputs.items()]),
+                np.vstack(
+                    (
+                        np.vstack([data[idx + input_width - label_width:idx + input_width, col_idx] for feature, col_idx in dataset.targets.items()]),
+                        np.vstack([data[idx + input_width:idx + input_width + label_width, col_idx] for feature, col_idx in dataset.inputs_exo.items()])
+                    )
+                )
             )
         )
 
-        error = abs(input - sample_batched['input'][0].numpy()).max()
+        error = abs(input - sample_batched['input'][0].cpu().numpy()).max()
         assert error<1e-7, f'Validation failed for input data'
 
-        target = np.vstack([data[idx+input_width+label_width:idx+window_length, col_idx] for feature, col_idx in dataset.targets.items()])
+        target = np.vstack([data[idx+input_width:idx+window_length, col_idx] for feature, col_idx in dataset.targets.items()])
 
-        error = abs(target - sample_batched['target'][0].numpy()).max()
+        error = abs(target - sample_batched['target'][0].cpu().numpy()).max()
         assert error<1e-7, f'Validation failed for target data'
 
         self.input_shape = sample_batched['input'].size()
