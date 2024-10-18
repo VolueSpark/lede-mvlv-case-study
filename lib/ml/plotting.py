@@ -57,7 +57,7 @@ def plot_active_power(x: pl.DataFrame, y: pl.DataFrame, y_hat: pl.DataFrame):
 def plot_reactive_power(x: pl.DataFrame, y: pl.DataFrame, y_hat: pl.DataFrame):
     x = x.with_columns(agg_kwh=x.select(pl.col(r'^X_Q.*$')).sum_horizontal())
     y = y.with_columns(agg_kwh=y.select(pl.col(r'^X_Q.*$')).sum_horizontal())
-    y_hat = y_hat.with_columns(agg_kwh=y_hat.select(pl.col(r'^X_P.*$')).sum_horizontal())
+    y_hat = y_hat.with_columns(agg_kwh=y_hat.select(pl.col(r'^X_Q.*$')).sum_horizontal())
 
     fig, axs = plt.subplots(2,1, sharex=True, figsize=(15,10))
 

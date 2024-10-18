@@ -88,7 +88,7 @@ class Ml:
         self.writer = SummaryWriter(log_dir=self.tensorboard_path )
 
         # load the data
-        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'active.parquet'))
+        self.train_loader, self.val_loader = self.load_data(data_path=os.path.join(self.silver_data_path, 'data.parquet'))
 
         # create the dnn
         self.model = getattr(NETWORK, MODEL_CLASS)(
