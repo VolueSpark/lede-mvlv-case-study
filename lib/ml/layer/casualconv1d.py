@@ -1,6 +1,12 @@
 from torch import nn
-import numpy as np
-import torch
+
+def initialize_weights(module):
+    if isinstance(module, nn.Conv1d):
+        # Apply Glorot (Xavier) normal initialization to weights
+        nn.init.xavier_normal_(module.weight)
+        if module.bias is not None and len(module.bias.shape) >= 2:
+            # Apply Glorot (Xavier) normal initialization to biases
+            nn.init.xavier_normal_(module.bias)
 
 
 class CasualConv1d(nn.Module):
@@ -10,9 +16,7 @@ class CasualConv1d(nn.Module):
             out_channels: int,
             kernel_size: int,
             dilation: int = 1,
-            groups: int = 1,
-            bias: int = True,
-            weights: np.ndarray = None
+            bias: bool = False
     ):
         super(CasualConv1d, self).__init__()
 
@@ -24,15 +28,13 @@ class CasualConv1d(nn.Module):
             kernel_size=kernel_size,
             padding=self.casual_padding,
             dilation=dilation,
-            groups=groups,
             bias=bias
         )
 
-        if weights is not None:
-            with torch.no_grad():
-                self.conv1d.weight.copy_(torch.tensor(weights, dtype=torch.float32).view(self.conv1d.weight.data.shape))
-            self.conv1d.weight.requires_grad_(True)
+        initialize_weights(self)
 
     def forward(self, input):
-        x = self.conv1d(input)
-        return x[:, :, :-self.casual_padding]
+        return self.conv1d(input)[:, :, :-self.casual_padding]
+
+        x = self.maxpool1d(x)
+        return x

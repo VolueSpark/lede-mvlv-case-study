@@ -4,7 +4,6 @@ import torch
 
 from lib import logger
 from lib.ml.layer.lstmresidual import LSTMResidual
-from lib.ml.layer.casualdownsample import CasualDownSample
 from lib.ml.layer.mlp import MultiLayerPerceptron
 
 
@@ -25,8 +24,13 @@ class LstmResNet(nn.Module):
             target_shape=target_shape
         )
 
+        self.lstm_res_2 = LSTMResidual(
+            input_shape=input_shape,
+            target_shape=target_shape
+        )
+
         self.dense = MultiLayerPerceptron(
-            hidden_layers=[(input_shape[1]*input_shape[2], 50), (50, target_shape[1]*target_shape[2])],
+            hidden_layers=[(input_shape[1]*target_shape[2], 50), (50, target_shape[1]*target_shape[2])],
             output_shape=(target_shape[1], target_shape[2]),
         )
 

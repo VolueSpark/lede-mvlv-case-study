@@ -10,7 +10,8 @@ class MultiLayerPerceptron(nn.Module):
     def __init__(
             self,
             hidden_layers: List[Tuple[int, int]],
-            output_shape: Tuple[int, int]
+            output_shape: Tuple[int, int],
+            bias: bool = False,
     ):
         super(MultiLayerPerceptron, self).__init__()
         assert len(hidden_layers) > 0
@@ -25,7 +26,8 @@ class MultiLayerPerceptron(nn.Module):
                 )
             self.layers[f'mlp_layer_{layer_i}'] = nn.Linear(
                 in_features=in_features,
-                out_features=out_features
+                out_features=out_features,
+                bias=bias
             )
             self.layers[f'mlp_activation_{layer_i}'] = nn.ReLU(
                 inplace=True

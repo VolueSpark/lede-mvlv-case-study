@@ -184,13 +184,22 @@ class Ml:
                     on='timestamp', validate='1:1')
             )
 
-            def rbf_transform(x: pl.Series, period: int, input_range: Tuple[int, int]) -> pl.Series:
-                x_normalized = (x - input_range[0]) / (input_range[1] - input_range[0]) * period
-                return np.exp(-0.5 * ((x_normalized - period / 2) / 1.0) ** 2)
+            def rbf_transform(value: int, period: int):
+                return np.exp(-(value/period) ** 2)
 
-            data = (data
-                    .with_columns(pl.col('timestamp').map_batches(lambda x: rbf_transform(x=x.dt.hour(), period=24, input_range=(0,23))).alias('rbf_hour'),
-                                  pl.col('timestamp').map_batches(lambda x: rbf_transform(x=x.dt.weekday(), period=7, input_range=(0,6))).alias('rbf_weekday') ))
+            print('')
+
+            data = (
+                data
+                .with_columns(
+                    pl.col('timestamp').map_elements(lambda x: rbf_transform(
+                        value=x.hour + 1,
+                        period=24), return_dtype=pl.Float64).alias('rbf_hour'),
+                    pl.col('timestamp').map_elements(lambda x: rbf_transform(
+                        value=x.weekday() + 1,
+                        period=7), return_dtype=pl.Float64).alias('rbf_weekday')
+                )
+            )
 
             data = (data
              .rename({feature: (f't_{feature}' if feature == 'timestamp' else "X_{0}{1}_y".format(feature[0].upper(), re.match(r'^.*(\d{18})$', feature).group(1))
@@ -200,12 +209,16 @@ class Ml:
             data = data.drop(['X_euro_mwh',
                               'X_nok_euro',
                               'X_cloudcovermean',
+                              'X_cloudcover',
                               'X_dewmean',
                               'X_feelslikemean',
                               'X_feelslikemin',
                               'X_precipprobmean',
+                              'X_precipprob',
                               'X_pressuremean',
                               'X_solarenergymean',
+                              'X_solarradiationmean',
+                              'X_solarradiation',
                               'X_solarradiationmean',
                               'X_sunrise',
                               'X_sunset',
