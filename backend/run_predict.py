@@ -16,6 +16,5 @@ if __name__ == "__main__":
         uuid=UUID
     )
 
-    #predict.predict()
-    predict.inspect(prediction_index=12)
+    predict.predict()
 

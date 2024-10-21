@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Table with Links</title>
+</head>
+<body>
+<h1>UUID: {{uuid}}</h1>
+<h2>Average absolute prediction percentage error over target range</h2>
+<table border="1">
+    <thead>
+    <tr>
+        {% for key in data[0].keys() %}
+        <th>{{ key.capitalize() }}</th>
+        {% endfor %}
+    </tr>
+    </thead>
+    <tbody>
+    {% for item in data %}
+    <tr>
+        {% for key, value in item.items() %}
+        {% if key == 'id' %}
+        <td><a href="{{ url_for('meter', id=item['id'] ) }}">{{ value }}</a></td>
+        {% else %}
+        <td>{{ value }}</td>
+        {% endif %}
+        {% endfor %}
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</body>
+</html>

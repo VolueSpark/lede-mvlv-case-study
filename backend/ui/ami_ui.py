@@ -201,6 +201,5 @@ def meter():
     return render_template('index.html', plot_div=fig.to_html(full_html=False))
 
 
-
 if __name__ == "__main__":
     app.run(host=HOST, port=PORT)

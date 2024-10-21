@@ -1,18 +1,65 @@
-import matplotlib.pyplot as plt
-import numpy as np
-import random
 
 from lib.ml.ml import DataLoader
+from sklearn.preprocessing import MinMaxScaler
 import os, torch, json, importlib
 
-from typing import Tuple
+from lib.ml.analysis import decorator_confidence
+
 import polars as pl
 import pandas as pd
+
+import re
 
 PATH = os.path.dirname(__file__)
 
 from lib import decorator_timer, logger
 from lib.ml import Scaler, device
+
+import numpy as np
+import scipy.stats
+
+def annotate_metrics(ax, metrics: dict):
+    ax.annotate(
+        '\n'.join([f'{key}={value}' for key, value in metrics.items()]),
+        xy=(0, 1), xycoords='axes fraction',
+        xytext=(+0.5, -0.5), textcoords='offset fontsize',
+        fontsize='medium', verticalalignment='top', fontfamily='serif',
+        bbox=dict(facecolor='0.7', edgecolor='none', pad=3.0)
+    )
+
+
+def confidence_interval(data:pl.DataFrame, confidence: float) ->pl.DataFrame:
+        ci_analysis = []
+        def ci(data:pl.Series, confidence):
+            a = 1.0 * np.array(data)
+            n = len(a)
+            m, se = np.mean(a, axis=0), scipy.stats.sem(a)
+            h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
+
+            return m, m-h, m+h
+
+        prediction_range = range(data.filter(pl.col('type')=='target')['offset'].min(), data.filter(pl.col('type')=='target')['offset'].max()+1)
+        for power_type in ['P', 'Q']:
+            wildcard = f'^X_{power_type}.*$'
+            scaler = MinMaxScaler()
+            scaler.fit(data.filter(pl.col('type')=='target').select(wildcard))
+            scale_coef = sum([ max(val, abs(scaler.data_min_[i])) for i, val in enumerate(scaler.data_max_)])
+            for k in prediction_range:
+                pred_k = data.filter((pl.col('offset') == k) & (pl.col('type') == 'forecast')).select(wildcard)
+                real_k = data.filter((pl.col('offset') == k) & (pl.col('type') == 'target')).select(wildcard)
+
+                # absolute sum % error on maximum sum target value
+                error_k = abs((pred_k - real_k).to_numpy()).sum(axis=1)/scale_coef*100 # absolute error [power unit/meter]
+                mean_k, ci_lb_k, ci_ub_k = ci(data=error_k, confidence=confidence)
+                ci_analysis.append(
+                    {
+                        'type': power_type,
+                        'k': k - prediction_range[0],
+                        'mean': mean_k,
+                        'ci_lb': ci_lb_k,
+                        'ci_ub': ci_ub_k}
+                )
+        return pl.from_dicts(ci_analysis)
 
 
 
@@ -78,10 +125,11 @@ class Predict:
 
         return x.select(columns).vstack(y.select(columns)).vstack(y_hat.select(columns))
 
+    @decorator_confidence
     @decorator_timer
     def predict(self):
 
-        predictions =pl.DataFrame()
+        data =pl.DataFrame()
         logger.info(f"Run predict on test dataset {os.path.join(self.path, 'data/gold/test.parquet')}")
         with torch.no_grad():
             for data_i in self.test_loader:
@@ -89,64 +137,44 @@ class Predict:
 
                 output = self.model(input)
 
-                predictions.vstack(
+                data.vstack(
                     self.parse(
                         index=index.cpu().numpy()[0],
                         output=output.cpu().numpy()[0]
                     ), in_place=True
                 )
-        predictions.write_parquet(os.path.join(self.path, 'data/gold/predictions.parquet'))
-        logger.info(f"Prediction on test dataset saved at {os.path.join(self.path, 'data/gold/test.parquet')}")
+        data.write_parquet(os.path.join(self.path, 'data/gold/data.parquet'))
+        logger.info(f"Prediction on test dataset saved at {os.path.join(self.path, 'data/gold/data.parquet')}")
 
-    def inspect(self, prediction_index: int=0, show_pct:int =0.1):
+        data = pl.read_parquet(os.path.join(self.path, 'data/gold/data.parquet'))
+
+        pred_range = range(data.filter(pl.col('type')=='target')['offset'].min(), data.filter(pl.col('type')=='target')['offset'].max()+1)
+        metadata = []
+        for power_type in ['P', 'Q']:
+            wildcard = f'^X_{power_type}.*$'
+            for meter in data.select(wildcard).columns:
+
+                y_max = round(data.filter(pl.col('type')=='target').select(meter).max().item(),2)
+                y_min = round(data.filter(pl.col('type')=='target').select(meter).min().item(),2)
+                y_range = round(y_max-y_min,2)
+
+                meta = {
+                    'id':re.search(f'(?<=X_{power_type})\\d+(?=_y)', meter).group(),
+                    'type': power_type,
+                    'max': y_max,
+                    'min': y_min,
+                    'range': y_range
+                }
+                for k in pred_range:
+                    pred_k = data.filter((pl.col('offset') == k) & (pl.col('type') == 'forecast')).select(meter)
+                    real_k = data.filter((pl.col('offset') == k) & (pl.col('type') == 'target')).select(meter)
+                    meta |= {
+                        f'err_{k-min(pred_range)+1}': round(abs((pred_k-real_k).to_numpy()).mean()/y_range*100,1) if bool(y_range) else 0 # absolute error % over max real value over entire time horizon for prediction index k,
+                    }
+                metadata.append(meta)
+        pl.from_dicts(metadata).write_parquet(os.path.join(self.path, 'data/gold/metadata.parquet'))
 
 
 
-        predictions = pl.read_parquet(os.path.join(self.path, 'data/gold/predictions.parquet'))
-        prediction_range = (predictions.filter(pl.col('type')=='target')['offset'].min(), predictions.filter(pl.col('type')=='target')['offset'].max())
-        offset =prediction_index+min(prediction_range)
 
-        if len(predictions.select(pl.col(r'^X_P.*$')).columns):
-            p = predictions.select(['base', 'offset', 'type']+predictions.select(r'^X_P.*$').columns).sort(by='base', descending=False)
-            p = p.with_columns(p_sum=p.select(r'^X_P.*$').sum_horizontal())
-            y_p = p.filter(pl.col('offset')==offset).filter( (pl.col('type')=='forecast') | (pl.col('type')=='target') )
 
-        if len(predictions.select(pl.col(r'^X_Q.*$')).columns):
-            q = predictions.select(['base', 'offset', 'type']+predictions.select(r'^X_Q.*$').columns).sort(by='base', descending=False)
-            q = q.with_columns(q_sum=q.select(r'^X_Q.*$').sum_horizontal())
-            y_q = q.filter(pl.col('offset')==offset).filter( (pl.col('type')=='forecast') | (pl.col('type')=='target') )
-
-        fig, axs = plt.subplots(2,1, sharex=True, figsize=(15,10))
-
-        plot_range = 168
-        n = y_p['base'].unique().shape[0]
-        plot_index = random.randint(0, n-plot_range)
-        from_index = plot_index
-        to_index = plot_index+plot_range
-
-        t = y_p.filter(pl.col('type')=='target')['base'][from_index:to_index]
-        y_p_real = y_p.filter(pl.col('type')=='target')['p_sum'][from_index:to_index]
-        y_p_pred = y_p.filter(pl.col('type')=='forecast')['p_sum'][from_index:to_index]
-
-        axs[0].plot(t, y_p_real, label='$P^{real}_{kWh}$', color='#088F8F', linewidth=1, marker='o', linestyle='dashed')
-        axs[0].plot(t, y_p_pred, label='$P^{pred}_{kWh}$', color='#0000FF', linewidth=1, marker='x')
-        axs[0].set_title(f"Predicted aggregated active power")
-        axs[0].set_ylabel('$P^{sum}_{kWh}$')
-        axs[0].legend(loc='lower left')
-
-        t = y_q.filter(pl.col('type')=='target')['base'][from_index:to_index]
-        y_q_real = y_q.filter(pl.col('type')=='target')['q_sum'][from_index:to_index]
-        y_q_pred = y_q.filter(pl.col('type')=='forecast')['q_sum'][from_index:to_index]
-
-        axs[1].plot(t, y_q_real, label='$Q^{real}_{kVArh}$', color='#088F8F', linewidth=1, marker='o', linestyle='dashed')
-        axs[1].plot(t, y_q_pred, label='$Q^{pred}_{kVArh}$', color='#0000FF', linewidth=1, marker='x')
-        axs[1].set_title(f"Predicted aggregated reactive power]")
-        axs[1].set_ylabel('$Q^{sum}_{kWh}$')
-        axs[1].legend(loc='lower left')
-
-        fig.text(0.5, 0.04, 'time', ha='center')
-        plt.suptitle(f"Aggregated load profile at T=t+{prediction_index} (t={t[0].strftime('%Y-%m-%d %H')}):\nNeighborhood {self.name}")
-
-        plt.xticks(rotation=25)
-        plt.tight_layout()
-        plt.show()
