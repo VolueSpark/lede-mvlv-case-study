@@ -34,13 +34,13 @@
         },
       loss:
         {
-          function: 'HuberLoss',
+          function: 'MSELoss',
           HuberLoss:
             {
               params:
                 {
                   reduction: 'sum',
-                  delta: 2
+                  delta: 5
                 }
             },
           MSELoss:
