@@ -29,10 +29,6 @@ class CasualConv1d(nn.Module):
             bias=bias
         )
 
-        if weights is not None:
-            with torch.no_grad():
-                self.conv1d.weight.copy_(torch.tensor(weights, dtype=torch.float32).view(self.conv1d.weight.data.shape))
-            self.conv1d.weight.requires_grad_(True)
 
     def forward(self, input):
         x = self.conv1d(input)
@@ -43,15 +39,14 @@ class CasualConv1d(nn.Module):
 net = CasualConv1d(
     in_channels=1,
     out_channels=1,
-    kernel_size=5,
-    stride=3,
+    kernel_size=3,
     dilation=1,
     groups=1,
     bias=False,
-    weights=np.array([1,1,1,1,1])
+    weights=np.array([-1,2,-1])
 )
 
-x_in =  torch.tensor([1,2,3,4], dtype=torch.float32).view(1, 1, 4)
+x_in =  torch.tensor([0,1,4,4,1,0], dtype=torch.float32).view(1, 1, 6)
 y_out = net(x_in)
 
 print(x_in)

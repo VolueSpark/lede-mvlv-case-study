@@ -39,8 +39,8 @@
             {
               params:
                 {
-                  reduction: 'mean',
-                  delta: 0.1
+                  reduction: 'sum',
+                  delta: 2
                 }
             },
           MSELoss:
@@ -71,7 +71,7 @@
               label_width: 24,
             },
           batch_size: 32,
-          shuffle: False
+          shuffle: True
         }
     }
 }

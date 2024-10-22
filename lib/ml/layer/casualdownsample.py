@@ -2,6 +2,7 @@ from typing import Tuple
 from torch import nn
 import torch
 
+
 class CasualDownSample(nn.Module):
     def __init__(
             self,

@@ -167,9 +167,8 @@ class Ml:
                     index='timestamp',
                     values=['p_kwh', 'q_kvarh']
                 )
-                .fill_nan(None)
                 .sort(by='timestamp', descending=False)
-            ).upsample(time_column="timestamp", every="1h").fill_null(strategy="forward")
+            ).upsample(time_column="timestamp", every="1h").fill_null(strategy="forward").fill_null(strategy="backward")
 
             price = pl.read_parquet(os.path.join(self.bronze_data_path, 'price.parquet'))
             weather = pl.read_parquet(os.path.join(self.bronze_data_path, 'weather.parquet'))
@@ -201,10 +200,11 @@ class Ml:
                 )
             )
 
+            #data = data.select([col for col in data.columns if not bool(re.match(r'^.*(\d{18})$', col)) ] + ['p_kwh_707057500041377889', 'q_kvarh_707057500041377889']) TODO remove
+
             data = (data
              .rename({feature: (f't_{feature}' if feature == 'timestamp' else "X_{0}{1}_y".format(feature[0].upper(), re.match(r'^.*(\d{18})$', feature).group(1))
             if bool(re.match(r'^.*(\d{18})$', feature)) else f'X_{feature}') for i, feature in enumerate(data.columns)}))
-
 
             data = data.drop(['X_euro_mwh',
                               'X_nok_euro',

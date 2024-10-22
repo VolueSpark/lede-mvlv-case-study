@@ -1,9 +1,11 @@
 from torch import nn
+import numpy as np
+import torch
 
 def initialize_weights(module):
     if isinstance(module, nn.Conv1d):
         # Apply Glorot (Xavier) normal initialization to weights
-        nn.init.xavier_normal_(module.weight)
+        nn.init(module.weight)
         if module.bias is not None and len(module.bias.shape) >= 2:
             # Apply Glorot (Xavier) normal initialization to biases
             nn.init.xavier_normal_(module.bias)
@@ -34,7 +36,5 @@ class CasualConv1d(nn.Module):
         initialize_weights(self)
 
     def forward(self, input):
-        return self.conv1d(input)[:, :, :-self.casual_padding]
-
-        x = self.maxpool1d(x)
-        return x
+        x = self.conv1d(input)
+        return x[:, :, :-self.casual_padding]

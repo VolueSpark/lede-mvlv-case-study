@@ -125,7 +125,7 @@ class Predict:
 
         return x.select(columns).vstack(y.select(columns)).vstack(y_hat.select(columns))
 
-    @decorator_confidence
+    #@decorator_confidence
     @decorator_timer
     def predict(self):
 
@@ -145,8 +145,6 @@ class Predict:
                 )
         data.write_parquet(os.path.join(self.path, 'data/gold/data.parquet'))
         logger.info(f"Prediction on test dataset saved at {os.path.join(self.path, 'data/gold/data.parquet')}")
-
-        data = pl.read_parquet(os.path.join(self.path, 'data/gold/data.parquet'))
 
         pred_range = range(data.filter(pl.col('type')=='target')['offset'].min(), data.filter(pl.col('type')=='target')['offset'].max()+1)
         metadata = []
