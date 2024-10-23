@@ -4,6 +4,7 @@ from werkzeug import serving
 from threading import Thread
 import tensorboard as tb
 from lib.ml.ml import Ml
+from lib.ml.predict import Predict
 import os
 
 PATH = os.path.dirname(__file__)
@@ -39,16 +40,21 @@ class CustomServer(tb.program.TensorBoardServer):
 
 
 UUID = '59f5db7a-a41d-5166-90d8-207ca87fecc6'
+#UUID ='d1e83c9d-caa9-5bf0-89df-4238df995d06'
 #UUID = 'f22a4d55-0655-5bb4-923d-ea1dbec39d58'
 #UUID = '9e33b9f5-5fcb-54dc-abf2-7039a17dea05'
+
+
+ml =  Ml( root=WORK_PATH, uuid=UUID)
+pr = Predict( root=WORK_PATH, uuid=UUID)
+
+def main():
+    ml.train()
+    pr.predict()
+
 if __name__ == "__main__":
 
-    ml =  Ml(
-        root=WORK_PATH,
-        uuid=UUID
-    )
-
-    th1 = Thread(target=ml.train)
+    th1 = Thread(target=main)
     th1.start()
 
     program = tb.program.TensorBoard(server_class=CustomServer)

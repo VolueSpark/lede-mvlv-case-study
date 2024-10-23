@@ -45,6 +45,7 @@ class WidowGenerator(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         window = self.data[idx:idx + self.total_window_length]
 
+        '''
         input = torch.hstack(
             (
                 torch.cat(
@@ -66,6 +67,21 @@ class WidowGenerator(torch.utils.data.Dataset):
                         ).transpose(0, 1)
                     )
                 )
+            )
+        )
+        '''
+        input = torch.vstack(
+            (
+                torch.cat(
+                    [torch.tensor(window[0:self.input_width, col_idx], dtype=torch.float32).unsqueeze(-1)
+                     for feature, col_idx in self.targets.items()],
+                    dim=-1
+                ).transpose(0, 1),
+                torch.cat(
+                    [torch.tensor(window[self.total_window_length-self.input_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
+                     for feature, col_idx in self.inputs_exo.items()],
+                    dim=-1
+                ).transpose(0, 1)
             )
         )
 
@@ -114,6 +130,14 @@ class DataLoader(torch.utils.data.DataLoader):
         sample_batched = next(iter(self))
         idx = sample_batched['index'][0].numpy().flat[0]
 
+        input = np.vstack(
+            (
+                np.vstack([data[idx:idx + input_width, col_idx] for feature, col_idx in dataset.targets.items()]),
+                np.vstack([data[idx + window_length - input_width:idx + window_length, col_idx] for feature, col_idx in dataset.inputs_exo.items()])
+            )
+        )
+
+        '''
         input = np.hstack(
             (
                 np.vstack([data[idx:idx + input_width, col_idx] for feature, col_idx in dataset.inputs.items()]),
@@ -125,6 +149,7 @@ class DataLoader(torch.utils.data.DataLoader):
                 )
             )
         )
+        '''
 
         error = abs(input - sample_batched['input'][0].cpu().numpy()).max()
         assert error<1e-7, f'Validation failed for input data'

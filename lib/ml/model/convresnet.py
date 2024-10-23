@@ -23,6 +23,7 @@ class ConvResNet(nn.Module):
             in_channels=input_shape[1],
             out_channels=input_shape[1],
             kernel_size=3,
+            dilation=1,
             bias=True,
 
         )

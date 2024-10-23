@@ -20,6 +20,7 @@ class CasualConv1dResidual(nn.Module):
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
+            dilation=1<<dilation-1,
             bias=bias
         )
 
@@ -29,7 +30,7 @@ class CasualConv1dResidual(nn.Module):
             in_channels=out_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
-            dilation=dilation,
+            dilation=1<<dilation,
             bias=bias
         )
 

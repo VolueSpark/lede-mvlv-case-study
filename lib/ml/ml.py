@@ -186,7 +186,6 @@ class Ml:
             def rbf_transform(value: int, period: int):
                 return np.exp(-(value/period) ** 2)
 
-            print('')
 
             data = (
                 data

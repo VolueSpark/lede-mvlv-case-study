@@ -10,6 +10,8 @@ from lib import logger
 
 device = ( 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
 
+
+
 class Scaler(MinMaxScaler):
 
     def __init__(self):
