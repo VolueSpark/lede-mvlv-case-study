@@ -16,10 +16,13 @@ azure-storage-blob==12.19.0
 python-dotenv==1.0.1
 xlrd==2.0.1
 kaleido
-torch==2.4.1
+torch==2.5.0
 PyYAML==6.0.2
 wapi-python==0.7.15
 shapely==2.0.6
 tqdm==4.66.5
 torchviz==0.0.2
 torcheval==0.0.7
+
+
+

@@ -11,7 +11,7 @@
   },
   params:
     {
-      num_epochs: 50,
+      num_epochs: 30,
       optimizer:
         {
           algorithm: 'Adam',

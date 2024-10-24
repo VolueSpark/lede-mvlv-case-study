@@ -20,21 +20,21 @@ class CasualConv1dResidual(nn.Module):
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
-            dilation=1<<dilation-1,
+            dilation=dilation,
             bias=bias
         )
 
-        self.relu_1 = nn.ReLU(inplace=True)
+        self.relu_1 = nn.LeakyReLU(negative_slope=1e-2)
 
         self.casual_conv1d_2 = CasualConv1d(
             in_channels=out_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
-            dilation=1<<dilation,
+            dilation=dilation+1,
             bias=bias
         )
 
-        self.relu_2 = nn.ReLU(inplace=True)
+        self.relu_2 = nn.LeakyReLU(negative_slope=1e-2)
 
         self.skip_conv1d_3 = nn.Conv1d(
             in_channels=in_channels,

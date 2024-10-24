@@ -1,4 +1,5 @@
 
+from sklearn.metrics import root_mean_squared_error
 from lib.ml.ml import DataLoader
 from sklearn.preprocessing import MinMaxScaler
 import os, torch, json, importlib
@@ -96,7 +97,7 @@ class Predict:
             input_shape=self.meta['shape']['input'],
             target_shape=self.meta['shape']['target']
         )
-        self.model.load_state_dict(torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'state_dict.pth')),weights_only=True))
+        self.model.load_state_dict(torch.load(os.path.join(os.path.join(os.path.join(self.path, 'artifacts'), f'state_dict.pth')), weights_only=True))
         self.model.to(device)
 
     def parse( self, index: int, output: np.ndarray) -> pl.DataFrame:
@@ -126,10 +127,11 @@ class Predict:
         return x.select(columns).vstack(y.select(columns)).vstack(y_hat.select(columns))
 
     #@decorator_confidence
-    @decorator_timer
+
     def predict(self):
 
         data =pl.DataFrame()
+
         logger.info(f"Run predict on test dataset {os.path.join(self.path, 'data/gold/test.parquet')}")
         with torch.no_grad():
             for data_i in self.test_loader:
@@ -146,14 +148,19 @@ class Predict:
         data.write_parquet(os.path.join(self.path, 'data/gold/data.parquet'))
         logger.info(f"Prediction on test dataset saved at {os.path.join(self.path, 'data/gold/data.parquet')}")
 
+        logger.info(f"Compile predict metadata on test dataset {os.path.join(self.path, 'data/gold/test.parquet')}")
         pred_range = range(data.filter(pl.col('type')=='target')['offset'].min(), data.filter(pl.col('type')=='target')['offset'].max()+1)
         metadata = []
+
+        forecast_data = data.filter(pl.col('type')=='forecast')
+        target_data = data.filter(pl.col('type')=='target')
+
         for power_type in ['P', 'Q']:
             wildcard = f'^X_{power_type}.*$'
             for meter in data.select(wildcard).columns:
 
-                y_max = round(data.filter(pl.col('type')=='target').select(meter).max().item(),2)
-                y_min = round(data.filter(pl.col('type')=='target').select(meter).min().item(),2)
+                y_max = round(target_data.select(meter).max().item(),2)
+                y_min = round(target_data.select(meter).min().item(),2)
                 y_range = round(y_max-y_min,2)
 
                 meta = {
@@ -163,14 +170,22 @@ class Predict:
                     'min': y_min,
                     'range': y_range
                 }
+                if meta['id'] == '707057500041377841':
+                    print('')
                 for k in pred_range:
-                    pred_k = data.filter((pl.col('offset') == k) & (pl.col('type') == 'forecast')).select(meter)
-                    real_k = data.filter((pl.col('offset') == k) & (pl.col('type') == 'target')).select(meter)
+                    pred_k = forecast_data.filter(pl.col('offset') == k).select(meter).to_numpy()
+                    real_k = target_data.filter(pl.col('offset') == k).select(meter).to_numpy()
+
+
+                    rmse_k = root_mean_squared_error(pred_k, real_k)/y_range*100
+
                     meta |= {
-                        f'err_{k-min(pred_range)+1}': round(abs((pred_k-real_k).to_numpy()).mean()/y_range*100,1) if bool(y_range) else 0 # absolute error % over max real value over entire time horizon for prediction index k,
+                        f'rmse_{k-min(pred_range)+1}': round(rmse_k,2) # absolute error % over max real value over entire time horizon for prediction index k,
                     }
                 metadata.append(meta)
         pl.from_dicts(metadata).write_parquet(os.path.join(self.path, 'data/gold/metadata.parquet'))
+        logger.info(f"Prediction metadata on test dataset saved at {os.path.join(self.path, 'data/gold/metadata.parquet')}")
+
 
 
 

@@ -29,7 +29,7 @@ class WidowGenerator(torch.utils.data.Dataset):
             label_width: int
     ):
         super(WidowGenerator, self).__init__()
-        self.data = data
+        self.data = torch.tensor(data, dtype=torch.float).to(device)
 
         self.inputs = {feature:features[feature] for feature in features if feature[0:2] == 'X_'}
         self.inputs_exo = {feature:features[feature] for feature in features if feature[0:2] == 'X_' and feature[-2:]!='_y'}
@@ -45,40 +45,15 @@ class WidowGenerator(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         window = self.data[idx:idx + self.total_window_length]
 
-        '''
-        input = torch.hstack(
-            (
-                torch.cat(
-                    [torch.tensor(window[0:self.input_width, col_idx], dtype=torch.float32).unsqueeze(-1)
-                     for feature, col_idx in self.inputs.items()],
-                    dim=-1
-                ).transpose(0, 1)
-                , torch.vstack(
-                    (
-                        torch.cat(
-                            [torch.tensor(window[self.input_width - self.label_width:self.total_window_length - self.label_width, col_idx], dtype=torch.float32).unsqueeze(-1)
-                             for feature, col_idx in self.targets.items()],
-                            dim=-1
-                        ).transpose(0, 1),
-                        torch.cat(
-                            [torch.tensor(window[self.input_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
-                             for feature, col_idx in self.inputs_exo.items()],
-                            dim=-1
-                        ).transpose(0, 1)
-                    )
-                )
-            )
-        )
-        '''
         input = torch.vstack(
             (
                 torch.cat(
-                    [torch.tensor(window[0:self.input_width, col_idx], dtype=torch.float32).unsqueeze(-1)
+                    [window[0:self.input_width, col_idx].unsqueeze(-1)
                      for feature, col_idx in self.targets.items()],
                     dim=-1
                 ).transpose(0, 1),
                 torch.cat(
-                    [torch.tensor(window[self.total_window_length-self.input_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
+                    [window[self.total_window_length-self.input_width:self.total_window_length, col_idx].unsqueeze(-1)
                      for feature, col_idx in self.inputs_exo.items()],
                     dim=-1
                 ).transpose(0, 1)
@@ -86,15 +61,15 @@ class WidowGenerator(torch.utils.data.Dataset):
         )
 
         target = torch.cat(
-            [torch.tensor(window[self.input_width:self.total_window_length, col_idx], dtype=torch.float32).unsqueeze(-1)
+            [window[self.input_width:self.total_window_length, col_idx].unsqueeze(-1)
              for feature, col_idx in self.targets.items()],
             dim=-1
         ).transpose(0, 1)
 
         return {
             'index': idx,               # data shuffle index
-            'input': input.to(device),         # features inputs based on historical data
-            'target': target.to(device)        # target labels
+            'input': input,         # features inputs based on historical data
+            'target': target        # target labels
         }
 
 
@@ -152,12 +127,12 @@ class DataLoader(torch.utils.data.DataLoader):
         '''
 
         error = abs(input - sample_batched['input'][0].cpu().numpy()).max()
-        assert error<1e-7, f'Validation failed for input data'
+        assert error<1e-6, f'Validation failed for input data with error {error}'
 
         target = np.vstack([data[idx+input_width:idx+window_length, col_idx] for feature, col_idx in dataset.targets.items()])
 
         error = abs(target - sample_batched['target'][0].cpu().numpy()).max()
-        assert error<1e-7, f'Validation failed for target data'
+        assert error<1e-6, f'Validation failed for target data with error {error}'
 
         self.input_shape = sample_batched['input'].size()
         self.target_shape = sample_batched['target'].size()

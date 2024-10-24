@@ -1,15 +1,15 @@
 from sklearn.preprocessing import MinMaxScaler
+from pydantic import BaseModel, Field
+import pickle, os, json, torch, time
 from typing import List
 import numpy as np
 import polars as pl
-import pickle, os, json
-import torch, time
-from pydantic import BaseModel, Field
+
 
 from lib import logger
 
-device = ( 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
-
+device = ( 'cuda:0' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
+torch.cuda.set_per_process_memory_fraction(fraction=1.0, device=torch.device(device))
 
 
 class Scaler(MinMaxScaler):
@@ -163,11 +163,11 @@ def decorator_epoch(func):
                 acc=acc
             )
 
-            ave_loss = (loss + i*ave_loss)/(i+1)
-            ave_acc = (acc + i*ave_acc)/(i+1)
-
             self.writer.add_scalar(f'Loss/{tag}', loss, global_index)
             self.writer.add_scalar(f'Acc/{tag}', acc, global_index)
+
+            ave_loss = (loss + i*ave_loss)/(i+1)
+            ave_acc = (acc + i*ave_acc)/(i+1)
 
         return (ave_loss, ave_acc)
     return inner

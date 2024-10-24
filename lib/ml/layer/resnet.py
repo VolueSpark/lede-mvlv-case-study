@@ -27,7 +27,7 @@ class ResNet(nn.Module):
             bias=bias
         )
 
-        self.relu_1 = nn.ReLU(inplace=True)
+        self.relu_1 = nn.LeakyReLU(negative_slope=1e-2)
 
         self.linear_2 = nn.Linear(
             in_features=units,
@@ -41,7 +41,7 @@ class ResNet(nn.Module):
             bias=False,
         )
 
-        self.relu_2 = nn.ReLU(inplace=True)
+        self.relu_2 = nn.LeakyReLU(negative_slope=1e-2)
 
         self.reshape_1 = Reshape(
             output_shape=(target_shape[1], target_shape[2]),

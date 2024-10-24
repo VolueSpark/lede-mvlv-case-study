@@ -31,11 +31,10 @@ class ConvResNet(nn.Module):
         self.casual_conv1d_res_2 = CasualConv1dResidual(
             in_channels=input_shape[1],
             out_channels=input_shape[1],
-            dilation=2,
+            dilation=3,
             kernel_size=3,
             bias=True,
         )
-
 
         self.dense_1 = ResNet(
             input_shape=input_shape,
@@ -51,8 +50,8 @@ class ConvResNet(nn.Module):
             input: torch.Tensor
     )->torch.Tensor:
 
-        out_1 = self.casual_conv1d_res_1(input)
-        out_2 = self.casual_conv1d_res_2(out_1)
-        out_3 = self.dense_1(out_2)
+        x = self.casual_conv1d_res_1(input)
+        x = self.casual_conv1d_res_2(x)
+        x = self.dense_1(x)
 
-        return out_3
+        return x

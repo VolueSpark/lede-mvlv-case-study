@@ -1,3 +1,4 @@
+from torch.profiler import profile, record_function, ProfilerActivity
 import os, yaml, torch, re, json, socket, torcheval
 from torch.utils.tensorboard import SummaryWriter
 import polars.selectors as cs
@@ -96,6 +97,7 @@ class Ml:
             target_shape=self.train_loader.target_shape
         ).to(device)
 
+
         # tensor graph visualization
         (_, input, target) = next(iter(self.val_loader)).values()
         self.writer.add_graph(model=self.model, input_to_model=(input))
@@ -104,6 +106,14 @@ class Ml:
         self.optimizer = Optimizer(params=self.model.parameters())
         self.loss = Loss()
         self.metric = Metric()
+
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+            with record_function("model_inference"):
+                self.model(input)
+
+        profile_analysis = prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total", row_limit=100)
+        with open(os.path.join(self.artifacts_path, 'profiling.txt'), 'w') as fp:
+            fp.write(profile_analysis)
 
 
     def prepare_bronze_data(self):
@@ -294,8 +304,8 @@ class Ml:
 
             yield (
                 epoch_i*self.train_loader.meta.loader_depth + i,
-                loss.item(),
-                acc.item()
+                loss,
+                acc
             )
 
     @decorator_epoch
@@ -316,8 +326,8 @@ class Ml:
 
                 yield (
                     epoch_i*self.val_loader.meta.loader_depth + i,
-                    loss.item(),
-                    acc.item()
+                    loss,
+                    acc
                 )
 
     @decorate_train
@@ -330,6 +340,7 @@ class Ml:
             (ave_vloss, ave_vacc) = self.epoch_validation(epoch_i=epoch_i)
 
             yield (epoch_i, ave_loss, ave_acc, ave_vloss, ave_vacc)
+
 
 
 

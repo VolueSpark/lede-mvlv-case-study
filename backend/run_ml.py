@@ -2,6 +2,7 @@ from werkzeug.middleware import dispatcher
 from flask import Flask, redirect
 from werkzeug import serving
 from threading import Thread
+from numba import jit, cuda
 import tensorboard as tb
 from lib.ml.ml import Ml
 from lib.ml.predict import Predict
@@ -45,14 +46,14 @@ UUID = '59f5db7a-a41d-5166-90d8-207ca87fecc6'
 #UUID = '9e33b9f5-5fcb-54dc-abf2-7039a17dea05'
 
 
-ml =  Ml( root=WORK_PATH, uuid=UUID)
-pr = Predict( root=WORK_PATH, uuid=UUID)
-
-def main():
+if __name__ == "__main__":
+    ml = Ml( root=WORK_PATH, uuid=UUID)
     ml.train()
+
+    pr = Predict( root=WORK_PATH, uuid=UUID)
     pr.predict()
 
-if __name__ == "__main__":
+    exit(0)
 
     th1 = Thread(target=main)
     th1.start()
