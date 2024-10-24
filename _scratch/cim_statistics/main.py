@@ -5,8 +5,8 @@ import re
 
 PATH = os.path.dirname(os.path.abspath(__file__))
 
-CIM_PATH = os.path.join(PATH, '../../data/cim/raw/Lede_2024.09.27')
-AMI_PATH = os.path.join(PATH, '../../data/ami/bronze')
+CIM_PATH = os.path.join(PATH, '../../data/cim/raw/Lede_2024.09.29')
+AMI_PATH = os.path.join(PATH, '../../data/ami/silver/meas')
 
 if __name__ == "__main__":
     filepaths = []
@@ -32,4 +32,6 @@ if __name__ == "__main__":
     coop_meter_point_id = '707057500042745649'
     if coop_meter_point_id not in ami_meter_point_id:
         print(f"{coop_meter_point_id} not in availible AMI sensor list.")
+    else:
+        print(f"{coop_meter_point_id} is found in the availible AMI sensor list.")
 
